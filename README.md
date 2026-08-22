@@ -74,6 +74,6 @@ build.sh                         build + testes + publish
 ```
 
 ---
-**Versão:** 1.0.0-test · **Data:** 2026-08-22 · **Autor:** André Santo (forg3)
+**Versão:** 1.1.0 · **Data:** 2026-08-22 · **Autor:** André Santo (forg3)
 **Site:** junkyardgoodies.app
 **Repositório:** https://github.com/Seguranca-do-Trabalho/smb-speed-doctor
