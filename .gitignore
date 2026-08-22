@@ -5,3 +5,7 @@ dist/
 .vs/
 *.binlog
 TestResults/
+
+dist_linux/
+*.exe
+
