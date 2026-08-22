@@ -1,4 +1,4 @@
-# SMB Speed Doctor — Versão de Teste
+# SMB Speed Doctor — Versão de Teste (Community)
 
 Ferramenta **gratuita, ilimitada e sem custos** para diagnóstico de gargalos
 de rede SMB em Windows 10/11. Coleta métricas de todas as camadas (rede, SMB,
@@ -76,3 +76,4 @@ build.sh                         build + testes + publish
 ---
 **Versão:** 1.0.0-test · **Data:** 2026-08-22 · **Autor:** André Santo (forg3)
 **Site:** junkyardgoodies.app
+**Repositório:** https://github.com/Seguranca-do-Trabalho/smb-speed-doctor
