@@ -66,11 +66,28 @@ public sealed class DiagnosisEngine
                 penalty));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), penalty);
         }
-        // LinkUtilization: só pontua com medição de link crível (>= 1 Gb/s e <= 400 Gb/s)
+        // Enlace negociado baixo (<= 100 Mbit) em rede moderna: cabo Cat5/Cat5e velho,
+        // porta switch 10/100 ou negociação duplex ruim. O link É o gargalo.
+        else if (d.LinkSpeedBps > 0 && d.LinkSpeedBps <= 100_000_000)
+        {
+            findings.Add(new Finding("Network", "NegotiatedLinkSpeed",
+                FmtLink(d.LinkSpeedBps),
+                "enlace negociado muito abaixo do padrão moderno — verifique cabo (Cat6+) e porta do switch",
+                Severity.Warning, 8.0));
+            scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), 8.0);
+        }
+        // LinkUtilization: só pontua com medição de link crível (>= 10 Mbit/s e <= 400 Gbit/s)
         // E com tráfego real observado (rede ociosa não é gargalo).
         // Links virtuais reportam 100+ Gb/s nominais; sem NIC física confiável, sem peso.
-        bool linkCredible = d.LinkSpeedBps >= 1_000_000_000 && d.LinkSpeedBps <= 400_000_000_000;
+        bool linkCredible = d.LinkSpeedBps >= 10_000_000 && d.LinkSpeedBps <= 400_000_000_000;
         bool hasTraffic = d.RawThroughputBps > 1_000_000 || d.ObservedCopyThroughputBps > 1_000_000;
+        if (!linkCredible && d.LinkSpeedBps > 0)
+        {
+            findings.Add(new Finding("Network", "LinkSpeed",
+                FmtLink(d.LinkSpeedBps),
+                "velocidade de link fora da faixa confiável — provável adaptador virtual",
+                Severity.Warning, 0));
+        }
         if (linkCredible && hasTraffic && d.RawThroughputBps / d.LinkSpeedBps < 0.3
             && d.ObservedCopyThroughputBps * 8.0 < d.LinkSpeedBps * 0.15)
         {
