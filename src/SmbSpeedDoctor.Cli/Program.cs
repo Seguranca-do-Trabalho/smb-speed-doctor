@@ -12,6 +12,22 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        // Flags conhecidas; qualquer outra é rejeitada com exit 1 e mensagem de uso.
+        string[] knownFlags = { "--json", "--quiet", "--path", "--help", "-h" };
+        var unknown = args
+            .Where(a => a.StartsWith("-") && !knownFlags.Contains(a.Split('=')[0]))
+            .ToList();
+        if (unknown.Count > 0 || args.Contains("--help") || args.Contains("-h"))
+        {
+            Console.WriteLine(
+                "Uso: smbdoctor-cli scan [--json] [--quiet] [--path <share>]" + Environment.NewLine +
+                "  --json          saída em JSON (integração RMM)" + Environment.NewLine +
+                "  --quiet         suprime saída de texto (só exit code)" + Environment.NewLine +
+                "  --path <share>  caminho UNC alvo, ex.: \\\\servidor\\compartilhamento" + Environment.NewLine +
+                "Exit codes: 0 = ok | 1 = warning/erro | 2 = gargalo crítico");
+            return unknown.Count > 0 ? 1 : 0;
+        }
+
         var json = args.Contains("--json");
         var quiet = args.Contains("--quiet");
         var path = ParsePath(args);
