@@ -126,9 +126,18 @@ public sealed class WindowsNetworkCollector : INetworkCollector
     {
         try
         {
-            // NetworkInterface.Speed JÁ É bits/s (contrato .NET). Não converter.
+            // NetworkInterface.Speed JÁ É bits/s (contrato .NET).
+            // Saturação (ex.: -1 em int32 => 4294967295) e valores não-físicos são rejeitados:
+            // devolvemos 0 (desconhecido) e o motor trata link ausente com segurança.
             var nic = FastestActiveInterface();
-            return (long)(nic?.Speed ?? 0);
+            if (nic == null) return 0;
+            long bps = (long)nic.Speed;
+            if (bps <= 0 || bps > 400_000_000_000L)
+            {
+                Errors.Add($"link speed implausível ({bps} bps) na interface {nic.Name} — tratado como desconhecido");
+                return 0;
+            }
+            return bps;
         }
         catch (Exception ex)
         {
@@ -413,11 +422,13 @@ public sealed class WindowsScanner : IScanner
 
     private readonly string _target;
     private readonly string _path;
+    private readonly bool _noCopy;
 
-    public WindowsScanner(string targetServer = "loopback", string sharePath = "")
+    public WindowsScanner(string targetServer = "loopback", string sharePath = "", bool noCopy = false)
     {
         _target = targetServer;
         _path = sharePath;
+        _noCopy = noCopy;
     }
 
     public ScanData Collect()
@@ -459,6 +470,18 @@ public sealed class WindowsScanner : IScanner
         CollectionErrors.AddRange(cpu.Errors);
         CollectionErrors.AddRange(workload.Errors);
 
+        // Item 3: cópia de teste real vs aproximação de NIC.
+        var decision = RealCopyProbe.Decide(_path, _noCopy);
+        var probe = new RealCopyProbe();
+        var probeResult = decision == CopyProbeDecision.RunRealCopy
+            ? probe.Probe(_path)
+            : null;
+        double observedCopy = RealCopyProbe.ResolveObservedCopyBps(
+            decision, probeResult, approximationBps: EstimateObservedCopy(rawBps), collectionErrors: CollectionErrors);
+
+        if (probeResult is not null && probeResult.Success)
+            CollectionErrors.Add($"cópia de teste: {RealCopyProbe.Describe(probeResult)}");
+
         return new ScanData(
             LatencyMs: latency,
             RawThroughputBps: rawBps,
@@ -476,7 +499,7 @@ public sealed class WindowsScanner : IScanner
             SourceDiskReadBps: readBps,
             TargetDiskWriteBps: writeBps,
             AvFilterOnSharePath: DetectAvFilter(),
-            ObservedCopyThroughputBps: EstimateObservedCopy(rawBps),
+            ObservedCopyThroughputBps: observedCopy,
             AverageFileBytes: avgFile,
             FileCount: fileCount);
     }
