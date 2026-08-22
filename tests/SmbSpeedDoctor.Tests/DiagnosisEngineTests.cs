@@ -1,4 +1,4 @@
-// Criado por André Santo (forg3) | junkyardgoods.app
+// Criado por André Santo (forg3) | junkyardgoodies.app
 using Xunit;
 using SmbSpeedDoctor.Core;
 

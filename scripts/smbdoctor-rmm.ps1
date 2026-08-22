@@ -1,6 +1,6 @@
 @rem SMB Speed Doctor — wrapper para RMM (Action1, NinjaOne, Datto RMM, etc.)
 @rem Licença: MIT
-@rem Autor: <seu-identificador>
+@rem Criado por André Santo (forg3) | junkyardgoodies.app
 @rem Revisão: %DATE%
 @rem
 @rem Fluxo típico:
