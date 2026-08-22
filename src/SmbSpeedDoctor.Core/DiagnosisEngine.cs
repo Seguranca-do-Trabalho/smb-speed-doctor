@@ -66,10 +66,12 @@ public sealed class DiagnosisEngine
                 penalty));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), penalty);
         }
-        // LinkUtilization: só pontua com medição de link crível (>= 1 Gb/s e <= 400 Gb/s).
+        // LinkUtilization: só pontua com medição de link crível (>= 1 Gb/s e <= 400 Gb/s)
+        // E com tráfego real observado (rede ociosa não é gargalo).
         // Links virtuais reportam 100+ Gb/s nominais; sem NIC física confiável, sem peso.
         bool linkCredible = d.LinkSpeedBps >= 1_000_000_000 && d.LinkSpeedBps <= 400_000_000_000;
-        if (linkCredible && d.RawThroughputBps / d.LinkSpeedBps < 0.3
+        bool hasTraffic = d.RawThroughputBps > 1_000_000 || d.ObservedCopyThroughputBps > 1_000_000;
+        if (linkCredible && hasTraffic && d.RawThroughputBps / d.LinkSpeedBps < 0.3
             && d.ObservedCopyThroughputBps * 8.0 < d.LinkSpeedBps * 0.15)
         {
             findings.Add(new Finding("Network", "LinkUtilization",
@@ -247,7 +249,9 @@ public sealed class DiagnosisEngine
                 $"Rede é {FmtLink(d.LinkSpeedBps)}, mas cópia SMB cai para {FmtThroughput(d.ObservedCopyThroughputBps)}. " +
                 $"O gargalo dominante é a criptografia SMB ativa.",
             Bottleneck.Network =>
-                $"Perda de pacote em {FmtLink(d.LinkSpeedBps)} impactando TCP/SMB.",
+                d.PacketLossRatio >= 0.01
+                    ? $"Perda de pacote ({d.PacketLossRatio:P1}) em {FmtLink(d.LinkSpeedBps)} impactando TCP/SMB."
+                    : $"Capacidade de {FmtLink(d.LinkSpeedBps)} subutilizada durante a cópia observada.",
             Bottleneck.DiskTarget =>
                 $"Disco destino saturado limitando cópia para {FmtThroughput(d.TargetDiskWriteBps)}.",
             Bottleneck.DiskSource =>
