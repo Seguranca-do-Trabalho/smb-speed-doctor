@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SmbSpeedDoctor.Core\SmbSpeedDoctor.Core.csproj" />
+    <ProjectReference Include="..\..\src\SmbSpeedDoctor.Cli\SmbSpeedDoctor.Cli.csproj" />
   </ItemGroup>
 
 </Project>

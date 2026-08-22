@@ -13,7 +13,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         // Flags conhecidas; qualquer outra é rejeitada com exit 1 e mensagem de uso.
-        string[] knownFlags = { "--json", "--quiet", "--path", "--no-copy", "--save", "--compare", "--help", "-h" };
+        string[] knownFlags = { "--json", "--quiet", "--path", "--no-copy", "--save", "--compare", "--export", "--help", "-h" };
         var unknown = args
             .Where(a => a.StartsWith("-") && !knownFlags.Contains(a.Split('=')[0]))
             .ToList();
@@ -35,9 +35,21 @@ internal static class Program
         var path = ParsePath(args);
         var savePath = ParseFlagValue(args, "--save");
         var comparePath = ParseFlagValue(args, "--compare");
+        var exportPath = ParseFlagValue(args, "--export");
 
         try
         {
+            // Item 1 — fix --export roda o diagnóstico e escreve um .ps1 de correção.
+            if (exportPath is not null)
+            {
+                var scanFix = new WindowsScanner(sharePath: path, noCopy: noCopy).Collect();
+                var resultFix = new DiagnosisEngine().Diagnose(scanFix);
+                File.WriteAllText(exportPath, FixScriptBuilder.Build(resultFix));
+                Console.WriteLine($"Script de correção gerado (NÃO EXECUTADO): {exportPath}");
+                Console.WriteLine("Revise o conteúdo; as ações exigem elevação e rodada manual.");
+                return 0;
+            }
+
             var scan = new WindowsScanner(sharePath: path, noCopy: noCopy).Collect();
             var result = new DiagnosisEngine().Diagnose(scan);
             var code = ExitCodeMapper.For(result);
@@ -76,7 +88,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            var error = new { error = ex.Message, code = 1 };
+            var error = new { error = ex.Message, trace = ex.StackTrace, code = 1 };
             Console.WriteLine(JsonSerializer.Serialize(error));
             return 1;
         }
