@@ -24,10 +24,15 @@ Nenhum bloqueio grave. Todos os checks principais PASSARAM.
 
 ## Ressalvas (não bloqueiam o release)
 
-1. **Senha do share Samba em texto plano nos logs desta sessão** (`[SENHA REMOVIDA DO HISTORICO]`, usuário `hermes-smb`): usada para benchmarking sob instrução do dono, mas NÃO está em nenhum arquivo do repositório (verificado). Recomendação pós-release: rotacionar a senha do usuário `hermes-smb` no Samba.
+1. **Senha do share Samba em texto plano nos logs desta sessão** (`[SENHA REMOVIDA DO HISTORICO]`, usuário `hermes-smb`): usada para benchmarking sob instrução do dono, mas NÃO está em nenhum arquivo do repositório (verificado: `git log -p -S [SENHA REMOVIDA DO HISTORICO]` só retorna este próprio parecer; `grep` em scripts/src/tests/docs limpo). Recomendação pós-release: rotacionar a senha do usuário `hermes-smb` no Samba.
 2. **Warnings CA1416** (WMI só-suporta-Windows) em `WindowsScanner.cs`: esperado — o Core compila multiplataforma por design e os coletores só rodam no Windows com degradação graciosa. Não é defeito.
 3. **GUI WinForms não executável neste host Linux**: validação de abertura real da GUI permanece como passo do lado Windows (offic3). O build cross self-contained completa sem erros, e a estrutura da pasta `dist/Gui/` contém todos os DLLs nativos (coreclr, WPF/WinForms runtime).
 4. **`AUDIT.md` anterior cita typo já corrigido**: documento histórico mantido como registro.
+
+## Achados resolvidos durante a auditoria
+
+- **Texto de ajuda defasado** (não documentava `--save/--compare/--export`, apontado pelo agente auditador): corrigido no mesmo ciclo — `--help` atualizado com todas as flags e o subcomando `fix`. Commit `a5b0f4c`.
+- **Check de segurança concluído**: `git log -p -S '[SENHA REMOVIDA DO HISTORICO]'` confirma que a credencial jamais foi commitada; `grep` em scripts/src/tests/docs sem ocorrências.
 
 ## Cobertura de testes
 

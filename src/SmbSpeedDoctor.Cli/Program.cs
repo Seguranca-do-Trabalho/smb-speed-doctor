@@ -20,11 +20,14 @@ internal static class Program
         if (unknown.Count > 0 || args.Contains("--help") || args.Contains("-h"))
         {
             Console.WriteLine(
-                "Uso: smbdoctor-cli scan [--json] [--quiet] [--path <share>] [--no-copy]" + Environment.NewLine +
-                "  --json          saída em JSON (integração RMM)" + Environment.NewLine +
-                "  --quiet         suprime saída de texto (só exit code)" + Environment.NewLine +
-                "  --path <share>  caminho UNC alvo, ex.: \\\\servidor\\compartilhamento" + Environment.NewLine +
-                "  --no-copy       desativa cópia de teste real (scan rápido)" + Environment.NewLine +
+                "Uso: smbdoctor-cli scan [--json] [--quiet] [--path <share>] [--no-copy] [--save <arq>] [--compare <arq>] | fix --export <arquivo.ps1>" + Environment.NewLine +
+                "  --json             saída em JSON (integração RMM)" + Environment.NewLine +
+                "  --quiet            suprime saída de texto (só exit code)" + Environment.NewLine +
+                "  --path <share>     caminho UNC ou local alvo, ex.: \\\\servidor\\compartilhamento" + Environment.NewLine +
+                "  --no-copy          desativa cópia de teste real (scan rápido)" + Environment.NewLine +
+                "  --save <arquivo>   grava baseline do scan (para comparar depois)" + Environment.NewLine +
+                "  --compare <arq>    compara com baseline gravado (MELHOROU/PIOROU/ESTÁVEL)" + Environment.NewLine +
+                "  fix --export <ps1> gera script de correção (NÃO executa nada)" + Environment.NewLine +
                 "Exit codes: 0 = ok | 1 = warning/erro | 2 = gargalo crítico");
             return unknown.Count > 0 ? 1 : 0;
         }
