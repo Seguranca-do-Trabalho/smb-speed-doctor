@@ -426,8 +426,10 @@ public sealed class WindowsScanner : IScanner
 
     public WindowsScanner(string targetServer = "loopback", string sharePath = "", bool noCopy = false)
     {
-        _target = targetServer;
-        _path = sharePath;
+        // Item 1 (Solução B): normalização na fronteira — null vira neutro aqui,
+        // então TODAS as referências internas a _path/_target ficam seguras.
+        _target = targetServer ?? "loopback";
+        _path = sharePath ?? string.Empty;
         _noCopy = noCopy;
     }
 
@@ -462,7 +464,7 @@ public sealed class WindowsScanner : IScanner
         double cpuPct = cpu.GetUtilization();
 
         long avgFile = workload.GetAverageFileSize(_path);
-        int fileCount = _path.Length > 0 ? workload.GetFileCount(_path) : 0;
+        int fileCount = (_path?.Length > 0) ? workload.GetFileCount(_path) : 0;
 
         CollectionErrors.AddRange(network.Errors);
         CollectionErrors.AddRange(smb.Errors);
