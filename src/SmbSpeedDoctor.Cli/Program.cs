@@ -75,7 +75,7 @@ internal static class Program
 
             if (json)
             {
-                Console.WriteLine(Serialize(result, code));
+                Console.WriteLine(Serialize(result, code, scan));
             }
             else if (!quiet)
             {
@@ -88,7 +88,9 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            var error = new { error = ex.Message, trace = ex.StackTrace, code = 1 };
+            // Sem stack trace no JSON: logs RMM podem vazar; detalhe fica no stderr.
+            Console.Error.WriteLine(ex.StackTrace);
+            var error = new { error = ex.Message, code = 1 };
             Console.WriteLine(JsonSerializer.Serialize(error));
             return 1;
         }
@@ -124,7 +126,7 @@ internal static class Program
         return args.SkipWhile(a => a != flag).Skip(1).FirstOrDefault(a => !a.StartsWith("--"));
     }
 
-    private static string Serialize(DiagnosisResult r, int code)
+    private static string Serialize(DiagnosisResult r, int code, ScanData scan)
         => JsonSerializer.Serialize(new
         {
             exitCode = code,
@@ -143,10 +145,6 @@ internal static class Program
                 rem.Id, rem.Title, rem.Description, rem.RollbackDescription,
                 rem.Commands
             } : null,
-            copyMethod = new
-            {
-                r.RecommendedMethod.MethodName,
-                r.RecommendedMethod.Rationale
-            }
+            copyMethod = RobocopyBuilder.Build(scan, r)
         }, new JsonSerializerOptions { WriteIndented = true });
 }
