@@ -148,12 +148,35 @@ public sealed class WindowsNetworkCollector : INetworkCollector
         => target is "loopback" or "" ? "127.0.0.1" : target;
 
     private static NetworkInterface? FastestActiveInterface()
-        => NetworkInterface.GetAllNetworkInterfaces()
+    {
+        // Filtra loopback, túneis (Tailscale/VPN) e adaptadores virtuais comuns.
+        // Sem esse filtro, o coletor pode reportar 100 Gb/s de um vSwitch.
+        var candidates = NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up
                      && n.NetworkInterfaceType != NetworkInterfaceType.Loopback
-                     && n.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                     && n.NetworkInterfaceType != NetworkInterfaceType.Tunnel
+                     && n.NetworkInterfaceType != NetworkInterfaceType.GenericModem)
+            .Where(n =>
+            {
+                var name = n.Name.ToLowerInvariant();
+                var desc = n.Description.ToLowerInvariant();
+                bool virtualNic =
+                    name.Contains("virtual") || name.Contains("vethernet")
+                    || name.Contains("vmware") || name.Contains("hyper-v")
+                    || name.Contains("wsa") || name.Contains("tailscale")
+                    || desc.Contains("virtual") || desc.Contains("hyper-v")
+                    || desc.Contains("vmware") || desc.Contains("virtualbox")
+                    || desc.Contains("tap-") || desc.Contains("tailscale")
+                    || desc.Contains("wireguard") || desc.Contains("openvpn");
+                return !virtualNic;
+            })
             .OrderByDescending(n => n.Speed)
-            .FirstOrDefault();
+            .ToList();
+
+        // Preferência: interface que tem gateway (rota default) — é a física de verdade.
+        var withGateway = candidates.FirstOrDefault(n => n.GetIPProperties().GatewayAddresses.Count > 0);
+        return withGateway ?? candidates.FirstOrDefault();
+    }
 }
 
 public sealed class WindowsSmbCollector : ISmbCollector

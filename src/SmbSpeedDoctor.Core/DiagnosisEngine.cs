@@ -66,7 +66,10 @@ public sealed class DiagnosisEngine
                 penalty));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), penalty);
         }
-        if (d.LinkSpeedBps > 0 && d.RawThroughputBps / d.LinkSpeedBps < 0.3
+        // LinkUtilization: só pontua com medição de link crível (>= 1 Gb/s e <= 400 Gb/s).
+        // Links virtuais reportam 100+ Gb/s nominais; sem NIC física confiável, sem peso.
+        bool linkCredible = d.LinkSpeedBps >= 1_000_000_000 && d.LinkSpeedBps <= 400_000_000_000;
+        if (linkCredible && d.RawThroughputBps / d.LinkSpeedBps < 0.3
             && d.ObservedCopyThroughputBps * 8.0 < d.LinkSpeedBps * 0.15)
         {
             findings.Add(new Finding("Network", "LinkUtilization",
