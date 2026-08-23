@@ -371,42 +371,103 @@ public sealed class WindowsCpuCollector : ICpuCollector
     }
 }
 
+/// <summary>
+/// Amostragem de workload (tamanho médio e contagem de arquivos) com limites.
+///
+/// A versão anterior fazia DUAS varreduras recursivas completas do alvo — uma
+/// em <c>GetAverageFileSize</c> (com um <c>new FileInfo(f).Length</c> por
+/// arquivo, ou seja, uma ida à rede a mais por arquivo) e outra em
+/// <c>GetFileCount</c>. Num share SMB real isso é inviável: medido em
+/// <b>161 arquivos/s</b> contra <b>43.831/s</b> em disco local (272× mais
+/// lento). O scan ficava mais de 10 minutos sem produzir nada, travado na
+/// enumeração ANTES de medir qualquer coisa — a ferramenta nunca foi usável no
+/// caso de uso a que se destina.
+///
+/// Correções: uma única passagem (resultado em cache para as duas métricas),
+/// <see cref="DirectoryInfo.EnumerateFiles(string, SearchOption)"/> em vez de
+/// caminhos + <c>FileInfo</c> (o tamanho já vem do dado de diretório, sem
+/// chamada extra), e teto de arquivos + orçamento de tempo.
+/// </summary>
 public sealed class WindowsWorkloadAnalyzer : IWorkloadAnalyzer
 {
+    /// <summary>Teto de arquivos amostrados.</summary>
+    public const int MaxFilesSampled = 25_000;
+
+    /// <summary>Tempo máximo gasto amostrando, mesmo sem atingir o teto.</summary>
+    public static readonly TimeSpan SampleTimeBudget = TimeSpan.FromSeconds(10);
+
     public List<string> Errors { get; } = new();
+
+    private string? _cachedPath;
+    private long _cachedAvg;
+    private int _cachedCount;
 
     public long GetAverageFileSize(string path)
     {
-        try
-        {
-            var sizes = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-                .Select(f => new FileInfo(f).Length);
-            long sum = 0; int n = 0;
-            foreach (var s in sizes) { sum += s; n++; }
-            return n > 0 ? sum / n : 0;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            Errors.Add($"workload (acesso negado parcial): {ex.Message}");
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Errors.Add($"workload: {ex.Message}");
-            return 0;
-        }
+        Sample(path);
+        return _cachedAvg;
     }
 
     public int GetFileCount(string path)
     {
+        Sample(path);
+        return _cachedCount;
+    }
+
+    /// <summary>Uma passagem só; as duas métricas saem do mesmo resultado.</summary>
+    private void Sample(string path)
+    {
+        if (_cachedPath == path) return;   // já amostrado nesta coleta
+        _cachedPath = path;
+        _cachedAvg = 0;
+        _cachedCount = 0;
+
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        var relogio = System.Diagnostics.Stopwatch.StartNew();
+        long soma = 0;
+        int n = 0;
+        bool truncado = false;
+
         try
         {
-            return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
+            // EnumerateFiles do DirectoryInfo devolve FileInfo com Length já
+            // preenchido pelo dado da enumeração — não custa uma ida à rede por
+            // arquivo, ao contrário de Directory.EnumerateFiles + new FileInfo.
+            foreach (var fi in new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                try { soma += fi.Length; }
+                catch { /* arquivo sumiu ou sem acesso: ignora este, segue */ }
+                n++;
+
+                if (n >= MaxFilesSampled || relogio.Elapsed > SampleTimeBudget)
+                {
+                    truncado = true;
+                    break;
+                }
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Errors.Add($"workload (acesso negado parcial): {ex.Message}");
         }
         catch (Exception ex)
         {
-            Errors.Add($"contagem arquivos: {ex.Message}");
-            return 0;
+            Errors.Add($"workload: {ex.Message}");
+        }
+
+        _cachedCount = n;
+        _cachedAvg = n > 0 ? soma / n : 0;
+
+        if (truncado)
+        {
+            // Honestidade: a contagem passa a ser PISO, não total. Quem lê o
+            // relatório precisa saber que o número foi cortado.
+            Errors.Add(
+                $"workload: amostragem interrompida em {n} arquivos após " +
+                $"{relogio.Elapsed.TotalSeconds:F1}s (teto {MaxFilesSampled} / " +
+                $"{SampleTimeBudget.TotalSeconds:F0}s). Tamanho médio vem da amostra; " +
+                "a contagem é um piso, não o total do compartilhamento.");
         }
     }
 }

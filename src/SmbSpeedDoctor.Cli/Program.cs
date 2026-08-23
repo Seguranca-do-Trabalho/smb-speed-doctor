@@ -53,7 +53,8 @@ internal static class Program
                 return 0;
             }
 
-            var scan = new WindowsScanner(sharePath: path, noCopy: noCopy).Collect();
+            var scanner = new WindowsScanner(sharePath: path, noCopy: noCopy);
+            var scan = scanner.Collect();
             var result = new DiagnosisEngine().Diagnose(scan);
             var code = ExitCodeMapper.For(result);
 
@@ -78,7 +79,7 @@ internal static class Program
 
             if (json)
             {
-                Console.WriteLine(Serialize(result, code, scan));
+                Console.WriteLine(Serialize(result, code, scan, scanner.CollectionErrors));
             }
             else if (!quiet)
             {
@@ -129,7 +130,8 @@ internal static class Program
         return args.SkipWhile(a => a != flag).Skip(1).FirstOrDefault(a => !a.StartsWith("--"));
     }
 
-    private static string Serialize(DiagnosisResult r, int code, ScanData scan)
+    private static string Serialize(
+        DiagnosisResult r, int code, ScanData scan, IReadOnlyList<string>? notes = null)
         => JsonSerializer.Serialize(new
         {
             exitCode = code,
@@ -137,6 +139,24 @@ internal static class Program
             severity = r.Severity.ToString(),
             confidence = r.ConfidencePct,
             summary = r.OneLineSummary,
+
+            // A MEDIÇÃO em si — o número que a ferramenta existe para produzir.
+            // Não era serializado: o `copyMethod.EstimatedThroughputMBps` é a
+            // ESTIMATIVA do robocopy (limitada por tetos), não a taxa medida, e
+            // era o único número de velocidade no JSON. Quem integrava via RMM
+            // não tinha como ver o resultado da cópia de teste.
+            measuredThroughputMBps = Math.Round(scan.ObservedCopyThroughputBps / 1_000_000.0, 2),
+            throughputQuality = scan.ThroughputQuality.ToString(),
+            linkSpeedMbps = Math.Round(scan.LinkSpeedBps / 1_000_000.0, 0),
+            latencyMs = Math.Round(scan.LatencyMs, 2),
+            fileCountSampled = scan.FileCount,
+            averageFileBytes = (long)scan.AverageFileBytes,
+
+            // Notas da coleta: resultado da sonda de cópia, quedas para
+            // aproximação, truncamento da amostragem de workload. Eram
+            // calculadas e descartadas.
+            collectionNotes = notes ?? Array.Empty<string>(),
+
             findings = r.Findings.Select(f => new
             {
                 f.Layer, f.Metric, f.Value, f.Interpretation,
