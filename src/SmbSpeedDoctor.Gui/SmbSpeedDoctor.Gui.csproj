@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SmbSpeedDoctor.Core\SmbSpeedDoctor.Core.csproj" />
+    <ProjectReference Include="..\SmbSpeedDoctor.Core.Windows\SmbSpeedDoctor.Core.Windows.csproj" />
   </ItemGroup>
 
 </Project>

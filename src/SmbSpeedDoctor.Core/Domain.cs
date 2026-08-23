@@ -7,12 +7,37 @@ public enum Bottleneck
     Network,
     SmbSigning,
     SmbEncryption,
+    SmbMultichannel,
     DiskSource,
     DiskTarget,
     Cpu,
     Antivirus,
     Workload,
     Protocol,
+}
+
+/// <summary>
+/// Procedência do throughput em <see cref="ScanData.ObservedCopyThroughputBps"/>.
+///
+/// Existe porque "não medi nada" e "medi e deu quase zero" produzem o MESMO
+/// número, e o motor tratava os dois como evidência de gargalo — concluindo
+/// "assinatura SMB crítica" numa rede ociosa e recomendando desligar a
+/// assinatura sem nenhuma medição. Regra: conclusão derivada de throughput
+/// exige <see cref="Measured"/> ou <see cref="Approximated"/>.
+/// </summary>
+public enum MeasurementQuality
+{
+    /// <summary>Sem medição válida. Não sustenta conclusão sobre throughput.</summary>
+    Unavailable,
+
+    /// <summary>
+    /// Estimado a partir de tráfego observado na NIC, com volume acima do piso
+    /// de credibilidade. Serve para conclusão, com confiança menor.
+    /// </summary>
+    Approximated,
+
+    /// <summary>Cópia de teste real executada e cronometrada.</summary>
+    Measured,
 }
 
 /// <summary>Severidade do gargalo detectado.</summary>
@@ -50,8 +75,14 @@ public sealed record ScanData(
     // Carga observada
     double ObservedCopyThroughputBps,
     double AverageFileBytes,
-    int FileCount)
+    int FileCount,
+    // Procedência do throughput acima. Default é o valor SEGURO: quem não
+    // declara explicitamente que mediu não recebe conclusão de throughput.
+    MeasurementQuality ThroughputQuality = MeasurementQuality.Unavailable)
 {
+    /// <summary>Throughput observado sustenta conclusão de gargalo?</summary>
+    public bool HasUsableThroughput => ThroughputQuality != MeasurementQuality.Unavailable;
+
     /// <summary>Duração média estimada por arquivo na cópia observada.</summary>
     public double AverageFileTransferSeconds =>
         FileCount > 0 && ObservedCopyThroughputBps > 0

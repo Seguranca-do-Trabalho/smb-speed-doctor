@@ -63,11 +63,37 @@ public sealed class RealCopyProbe
     /// não há path definido ou a flag --no-copy está ativa. Caminhos UNC SÃO executados:
     /// a probe valida escritabilidade na prática e degrada com erro registrado se falhar.
     /// </summary>
-    public static CopyProbeDecision Decide(string targetPath, bool realCopyDisabled)
+    // targetPath é nulável de fato: a CLI omite --path e o método já trata isso
+    // com IsNullOrWhiteSpace. Declarar como não-nulável era a anotação errada.
+    public static CopyProbeDecision Decide(string? targetPath, bool realCopyDisabled)
     {
         if (realCopyDisabled) return CopyProbeDecision.FallbackToApproximation;
         if (string.IsNullOrWhiteSpace(targetPath)) return CopyProbeDecision.FallbackToApproximation;
         return CopyProbeDecision.RunRealCopy;
+    }
+
+    /// <summary>
+    /// Piso de credibilidade da aproximação por NIC (1 MB/s).
+    ///
+    /// Abaixo disso o que se está lendo é tráfego de fundo de uma rede ociosa,
+    /// não uma cópia. Tratar isso como medição fazia o motor concluir
+    /// "assinatura SMB crítica" e recomendar desligar a assinatura sem evidência.
+    /// </summary>
+    public const double MinCredibleApproximationBps = 1_000_000;
+
+    /// <summary>
+    /// Procedência do número que vai para <see cref="ScanData.ObservedCopyThroughputBps"/>.
+    /// Só a cópia real bem-sucedida vale como <see cref="MeasurementQuality.Measured"/>.
+    /// </summary>
+    public static MeasurementQuality ResolveQuality(
+        CopyProbeDecision decision, CopyProbeResult? probeResult, double approximationBps)
+    {
+        if (decision == CopyProbeDecision.RunRealCopy && probeResult is { Success: true })
+            return MeasurementQuality.Measured;
+
+        return approximationBps >= MinCredibleApproximationBps
+            ? MeasurementQuality.Approximated
+            : MeasurementQuality.Unavailable;
     }
 
     /// <summary>Resolve o throughput observado, populando CollectionErrors quando houver fallback por falha.</summary>
@@ -182,7 +208,7 @@ public sealed class RealCopyProbe
         {
             int toWrite = (int)Math.Min(length - written, sizeof(int));
             uint v = (uint)rng.Next();
-            MemoryMarshal.Write(span[(int)written..], ref v);
+            MemoryMarshal.Write(span[(int)written..], in v);
             written += sizeof(int);
         }
         return buf;

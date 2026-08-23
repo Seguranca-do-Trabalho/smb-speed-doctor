@@ -30,7 +30,10 @@ public class DiagnosisEngineTests
         AvFilterOnSharePath: false,
         ObservedCopyThroughputBps: 38_000_000, // ~38 MB/s (BYTES/s) — cópia SMB colapsa no 24H2 com signing
         AverageFileBytes: 512L * 1024 * 1024,
-        FileCount: 10);
+        FileCount: 10,
+        // Estes cenários descrevem cópias REALMENTE medidas; sem isso o motor
+        // (corretamente) se recusa a concluir qualquer coisa sobre throughput.
+        ThroughputQuality: MeasurementQuality.Measured);
 
     [Fact]
     public void Perfil_saudavel_nao_aponta_gargalo()
@@ -134,5 +137,88 @@ public class DiagnosisEngineTests
         };
         var result = new DiagnosisEngine().Diagnose(data);
         Assert.Equal("robocopy paralelo (/MT)", result.RecommendedMethod.MethodName);
+    }
+
+    // ---------------------------------------------------------------------
+    // Regressão de campo: `scan` SEM --path não executa cópia de teste. O
+    // throughput vinha de NIC ociosa (~886 B/s) e o motor concluía "assinatura
+    // SMB crítica" (exit 2), recomendando DESLIGAR a assinatura — um downgrade
+    // de segurança apoiado em nenhuma medição. Reproduzido na máquina real.
+    // ---------------------------------------------------------------------
+
+    private static ScanData SemMedicao => Baseline with
+    {
+        ObservedCopyThroughputBps = 886,   // valor real observado no bug
+        ThroughputQuality = MeasurementQuality.Unavailable,
+    };
+
+    [Fact]
+    public void Sem_medicao_real_nao_acusa_assinatura_como_gargalo()
+    {
+        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+
+        Assert.NotEqual(Bottleneck.SmbSigning, result.Dominant);
+        Assert.NotEqual(Severity.Critical, result.Severity);
+        Assert.NotEqual(2, ExitCodeMapper.For(result));
+    }
+
+    [Fact]
+    public void Sem_medicao_real_nao_recomenda_desabilitar_assinatura()
+    {
+        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+
+        // Nenhuma recomendação de downgrade de segurança sem evidência.
+        Assert.Null(result.RecommendedRemediation);
+    }
+
+    [Fact]
+    public void Sem_medicao_real_declara_a_limitacao_e_baixa_a_confianca()
+    {
+        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+
+        Assert.Contains(result.Findings, f => f.Metric == "ThroughputQuality");
+        // Ausência de evidência não é evidência de ausência: não pode alegar 95%.
+        Assert.True(result.ConfidencePct < 95,
+            $"confiança deveria cair sem medição, veio {result.ConfidencePct}");
+    }
+
+    [Fact]
+    public void Sem_medicao_real_ainda_reporta_achados_independentes_de_throughput()
+    {
+        // Perda de pacote é medida direta — não depende de cópia. O scan rápido
+        // continua útil; só não conclui o que depende de throughput.
+        var data = SemMedicao with { PacketLossRatio = 0.03 };
+        var result = new DiagnosisEngine().Diagnose(data);
+
+        Assert.Equal(Bottleneck.Network, result.Dominant);
+    }
+
+    [Fact]
+    public void Dialeto_desconhecido_nao_e_interpretado_como_moderno()
+    {
+        // Fail-open: dado ausente virava parecer positivo ("dialeto moderno").
+        var data = Baseline with { NegotiatedDialect = "desconhecido" };
+        var result = new DiagnosisEngine().Diagnose(data);
+
+        var f = Assert.Single(result.Findings, x => x.Metric == "NegotiatedDialect");
+        Assert.DoesNotContain("moderno", f.Interpretation);
+    }
+
+    [Fact]
+    public void Multichannel_desabilitado_nao_e_contabilizado_como_assinatura()
+    {
+        // O achado de Multichannel somava no score de SmbSigning: o relatório
+        // listava um problema e culpava outro.
+        var data = Baseline with
+        {
+            SigningEnabled = false,        // isola o efeito do multichannel
+            Multichannel = false,
+            ActiveChannels = 1,
+            ObservedCopyThroughputBps = 38_000_000,
+        };
+        var result = new DiagnosisEngine().Diagnose(data);
+
+        Assert.Equal(Bottleneck.SmbMultichannel, result.Dominant);
+        Assert.NotEqual(Bottleneck.SmbSigning, result.Dominant);
     }
 }

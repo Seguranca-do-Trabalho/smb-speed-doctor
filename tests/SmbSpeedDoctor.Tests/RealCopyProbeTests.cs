@@ -1,4 +1,5 @@
 // Criado por André Santo (forg3) | junkyardgoodies.app
+using SmbSpeedDoctor.Core;
 using SmbSpeedDoctor.Core.Windows;
 using Xunit;
 
@@ -167,5 +168,54 @@ public class RealCopyProbeTests : IDisposable
         Assert.Contains("write", s);
         Assert.Contains("read", s);
         Assert.Contains("100.00 MB/s", s); // teto efetivo aparece formatado
+    }
+
+    // ---------------------------------------------------------------------
+    // Procedência do throughput: é o que separa "medi e deu baixo" de
+    // "não medi nada". Sem isso o motor concluía gargalo a partir de NIC ociosa.
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void Copia_real_bem_sucedida_e_medicao_Measured()
+    {
+        var ok = CopyProbeResult.Ok(120L * 1024 * 1024, 110L * 1024 * 1024);
+
+        var q = RealCopyProbe.ResolveQuality(
+            CopyProbeDecision.RunRealCopy, ok, approximationBps: 0);
+
+        Assert.Equal(MeasurementQuality.Measured, q);
+    }
+
+    [Fact]
+    public void Sem_copia_e_com_rede_ociosa_e_Unavailable()
+    {
+        // Cenário exato do bug: `scan` sem --path numa rede parada. A NIC rende
+        // ~886 B/s de tráfego de fundo — isso NÃO é medição de cópia.
+        var q = RealCopyProbe.ResolveQuality(
+            CopyProbeDecision.FallbackToApproximation, probeResult: null, approximationBps: 886);
+
+        Assert.Equal(MeasurementQuality.Unavailable, q);
+    }
+
+    [Fact]
+    public void Sem_copia_mas_com_trafego_real_e_Approximated()
+    {
+        var q = RealCopyProbe.ResolveQuality(
+            CopyProbeDecision.FallbackToApproximation, probeResult: null,
+            approximationBps: 40L * 1024 * 1024);
+
+        Assert.Equal(MeasurementQuality.Approximated, q);
+    }
+
+    [Fact]
+    public void Copia_real_que_falhou_nao_vira_Measured()
+    {
+        var falhou = CopyProbeResult.Fail("acesso negado");
+
+        var q = RealCopyProbe.ResolveQuality(
+            CopyProbeDecision.RunRealCopy, falhou, approximationBps: 886);
+
+        Assert.NotEqual(MeasurementQuality.Measured, q);
+        Assert.Equal(MeasurementQuality.Unavailable, q);
     }
 }

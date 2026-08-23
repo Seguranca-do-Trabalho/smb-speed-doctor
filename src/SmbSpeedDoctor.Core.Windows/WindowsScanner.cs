@@ -424,7 +424,10 @@ public sealed class WindowsScanner : IScanner
     private readonly string _path;
     private readonly bool _noCopy;
 
-    public WindowsScanner(string targetServer = "loopback", string sharePath = "", bool noCopy = false)
+    // Parâmetros anotados como nuláveis porque a CLI legitimamente passa null
+    // quando --path é omitido. A normalização abaixo é a fronteira: a partir
+    // daqui _target e _path nunca são nulos.
+    public WindowsScanner(string? targetServer = "loopback", string? sharePath = "", bool noCopy = false)
     {
         // Item 1 (Solução B): normalização na fronteira — null vira neutro aqui,
         // então TODAS as referências internas a _path/_target ficam seguras.
@@ -463,8 +466,12 @@ public sealed class WindowsScanner : IScanner
 
         double cpuPct = cpu.GetUtilization();
 
-        long avgFile = workload.GetAverageFileSize(_path);
-        int fileCount = (_path?.Length > 0) ? workload.GetFileCount(_path) : 0;
+        // Sem alvo não há workload a medir. Antes só GetFileCount tinha guarda:
+        // GetAverageFileSize recebia null, estourava lá dentro e o catch amplo
+        // registrava um erro espúrio ("Value cannot be null") no relatório.
+        bool hasPath = _path.Length > 0;
+        long avgFile = hasPath ? workload.GetAverageFileSize(_path) : 0;
+        int fileCount = hasPath ? workload.GetFileCount(_path) : 0;
 
         CollectionErrors.AddRange(network.Errors);
         CollectionErrors.AddRange(smb.Errors);
@@ -478,8 +485,15 @@ public sealed class WindowsScanner : IScanner
         var probeResult = decision == CopyProbeDecision.RunRealCopy
             ? probe.Probe(_path)
             : null;
+        double approximation = EstimateObservedCopy(rawBps);
         double observedCopy = RealCopyProbe.ResolveObservedCopyBps(
-            decision, probeResult, approximationBps: EstimateObservedCopy(rawBps), collectionErrors: CollectionErrors);
+            decision, probeResult, approximationBps: approximation, collectionErrors: CollectionErrors);
+        var quality = RealCopyProbe.ResolveQuality(decision, probeResult, approximation);
+
+        if (quality == MeasurementQuality.Unavailable)
+            CollectionErrors.Add(
+                "sem medição de throughput: cópia de teste não executada e tráfego de rede "
+                + "abaixo do piso de credibilidade — use --path <compartilhamento> para medir");
 
         if (probeResult is not null && probeResult.Success)
             CollectionErrors.Add($"cópia de teste: {RealCopyProbe.Describe(probeResult)}");
@@ -503,7 +517,8 @@ public sealed class WindowsScanner : IScanner
             AvFilterOnSharePath: DetectAvFilter(),
             ObservedCopyThroughputBps: observedCopy,
             AverageFileBytes: avgFile,
-            FileCount: fileCount);
+            FileCount: fileCount,
+            ThroughputQuality: quality);
     }
 
     /// <summary>Duas amostras com intervalo para contadores formatados.</summary>

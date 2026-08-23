@@ -1,22 +1,41 @@
 <#
 .SYNOPSIS
-    SMB Signing Tuner — configuração escopada para Windows 11 24H2.
+    SMB Signing Tuner — remove a obrigatoriedade de assinatura SMB do cliente.
+    ATENÇÃO: o efeito é GLOBAL, para TODAS as conexões desta máquina.
 
 .DESCRIPTION
     Windows 11 24H2 tornou RequireSecuritySignature obrigatório por padrão,
     causando queda típica de ~110 MB/s para ~38 MB/s em redes internas
-    confiáveis. Este script aplica tuning escopado:
-      - Remove obrigatoriedade global (RequireSecuritySignature $false)
-      - Mantém signing negociável para conexões fora da sub-rede (EnableSecuritySignature $true)
-      - Documenta justificativa e backup de estado para rollback
+    confiáveis. Este script:
+      - Remove a obrigatoriedade (RequireSecuritySignature $false)
+      - Mantém a assinatura NEGOCIÁVEL (EnableSecuritySignature $true), de modo
+        que o servidor ainda pode exigi-la
+      - Salva o estado anterior para rollback
 
-    GANHO ESPERADO: retorno à velocidade normal (~110 MB/s) em segmento confiável.
+    ESCOPO — leia antes de usar:
+    Set-SmbClientConfiguration é uma configuração DE MÁQUINA. O Windows não
+    oferece política de assinatura SMB por sub-rede no cliente. Portanto NÃO há
+    como limitar este ajuste a uma rede confiável: ao aplicar, a exigência de
+    assinatura cai para toda conexão SMB desta máquina — Wi-Fi público, VPN,
+    DMZ, hotel, qualquer uma.
+
+    Versões anteriores deste script aceitavam um parâmetro -Subnet e diziam
+    aplicar "tuning escopado". Isso era FALSO: o valor nunca era usado em nada
+    além de uma mensagem na tela, enquanto o efeito real sempre foi global. O
+    parâmetro foi removido para não induzir a uma falsa sensação de contenção.
+
+    Se você precisa de postura diferenciada por rede, a contenção tem de vir da
+    topologia (interface/VLAN dedicada ao tráfego confiável) ou de política
+    aplicada por escopo administrativo — não deste cmdlet.
 
     COMO VALIDAR:
-      1) Antes: smbdoctor-cli.exe scan --json > before.json
-      2) Execute: .\Set-SmbSigningOptimized.ps1 -Apply -Subnet 10.0.0.0/8
-      3) Depois: smbdoctor-cli.exe scan --json > after.json
-      4) Compare SigninEnabled e throughput entre before/after.
+      1) Antes: smbdoctor-cli.exe scan --json --path \\servidor\share > before.json
+      2) Execute: .\Set-SmbSigningOptimized.ps1 -Apply -AcceptGlobalSecurityImpact
+      3) Depois: smbdoctor-cli.exe scan --json --path \\servidor\share > after.json
+      4) Compare SigningEnabled e throughput entre before/after.
+
+    Observação: meça com --path. Sem cópia real não há medição de throughput e
+    não há como afirmar que a assinatura é o gargalo.
 
 .AUTHOR
     Criado por André Santo (forg3) | junkyardgoodies.app
@@ -25,9 +44,11 @@
     MIT License — veja LICENSE no repositório.
 
 .RISK
-    Signing protege contra tampering/MITM em SMB. Só desative em segmento
-    confiável (LAN interna, VLAN gerenciada). Em rede compartilhada ou DMZ,
-    mantenha signing obrigatório.
+    A assinatura SMB protege contra adulteração e ataques de relay/MITM. Sem a
+    obrigatoriedade, um atacante em posição de rede pode tentar rebaixar a
+    sessão. Como o efeito aqui é global e não por sub-rede, só aplique em
+    máquinas que não saem de um segmento controlado. Em notebook que circula
+    por redes de terceiros, NÃO aplique.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -41,8 +62,11 @@ param(
     [Parameter(Mandatory = $false)]
     [switch]$Status,
 
+    # Reconhecimento explícito de que o efeito é global (todas as conexões SMB
+    # desta máquina). Exigido em -Apply para que a decisão seja deliberada e
+    # fique registrada na linha de comando, no histórico e nos logs do RMM.
     [Parameter(Mandatory = $false)]
-    [string]$Subnet = '10.0.0.0/8'
+    [switch]$AcceptGlobalSecurityImpact
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,24 +125,38 @@ function Restore-State {
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
 if ($Apply) {
-    Write-Host "=== Aplicando tuning escopado de SMB Signing ===" -ForegroundColor Cyan
-    Write-Host "Sub-rede confiável: $Subnet"
-    Write-Host "Justificativa: Windows 11 24H2 exige signing global, mas em LAN confiável"
-    Write-Host "  o signing causa overhead significativo (~65% de perda de throughput)."
+    if (-not $AcceptGlobalSecurityImpact) {
+        Write-Error @'
+Recusado: este ajuste é GLOBAL, não por sub-rede.
+
+Set-SmbClientConfiguration vale para a máquina inteira. Ao aplicar, a exigência
+de assinatura SMB cai para TODAS as conexões desta máquina, inclusive em redes
+não confiáveis (Wi-Fi público, VPN, DMZ).
+
+Se isso é aceitável para esta máquina, repita com -AcceptGlobalSecurityImpact:
+  .\Set-SmbSigningOptimized.ps1 -Apply -AcceptGlobalSecurityImpact
+'@
+        exit 1
+    }
+
+    Write-Host "=== Removendo obrigatoriedade de assinatura SMB (efeito GLOBAL) ===" -ForegroundColor Cyan
+    Write-Host "ATENÇÃO: vale para todas as conexões SMB desta máquina." -ForegroundColor Yellow
+    Write-Host "Justificativa: Windows 11 24H2 exige signing por padrão, o que em LAN confiável"
+    Write-Host "  causa overhead significativo (~65% de perda de throughput)."
     Write-Host ""
 
     # Backup antes de alterar
     Save-State
 
-    # Configuração escopada
-    # RequireSecuritySignature $false → remove obrigatoriedade global
-    # EnableSecuritySignature $true   → mantém negociável (não obrigatório)
-    if ($PSCmdlet.ShouldProcess("SMB Client Configuration", "Aplicar tuning escopado")) {
+    # RequireSecuritySignature $false → remove a obrigatoriedade (efeito global)
+    # EnableSecuritySignature $true   → mantém negociável (servidor ainda pode exigir)
+    if ($PSCmdlet.ShouldProcess("SMB Client Configuration (máquina inteira)",
+                                "Remover obrigatoriedade de assinatura SMB")) {
         Set-SmbClientConfiguration -RequireSecuritySignature $false
         Set-SmbClientConfiguration -EnableSecuritySignature $true
         Write-Host "Configuração aplicada:" -ForegroundColor Green
-        Write-Host "  RequireSecuritySignature = $false (não obrigatório)"
-        Write-Host "  EnableSecuritySignature  = $true (negociável)"
+        Write-Host "  RequireSecuritySignature = false (não obrigatório) — TODAS as conexões"
+        Write-Host "  EnableSecuritySignature  = true  (negociável)"
     }
 
     Write-Host ""
@@ -136,9 +174,10 @@ if ($Rollback) {
 }
 
 # ── Sem parâmetro válido ──────────────────────────────────────────────────────
-Write-Host "Uso: Set-SmbSigningOptimized.ps1 [-Apply | -Rollback | -Status] [-Subnet <rede>]" -ForegroundColor Yellow
-Write-Host "  -Apply     Aplica tuning escopado (backup antes de alterar)"
-Write-Host "  -Rollback  Restaura estado anterior a partir do backup"
-Write-Host "  -Status    Exibe configuração atual e estado do backup"
-Write-Host "  -Subnet    Sub-rede confiável (default: 10.0.0.0/8)"
+Write-Host "Uso: Set-SmbSigningOptimized.ps1 [-Apply -AcceptGlobalSecurityImpact | -Rollback | -Status]" -ForegroundColor Yellow
+Write-Host "  -Apply                        Remove a obrigatoriedade de assinatura (backup antes)"
+Write-Host "  -AcceptGlobalSecurityImpact   Obrigatório com -Apply: confirma ciência de que o"
+Write-Host "                                efeito é GLOBAL (todas as conexões SMB da máquina)"
+Write-Host "  -Rollback                     Restaura estado anterior a partir do backup"
+Write-Host "  -Status                       Exibe configuração atual e estado do backup"
 exit 0

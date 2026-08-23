@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    net8.0-windows porque a suíte cobre também a coleta Windows (WindowsScanner,
+    RealCopyProbe). Os testes de domínio puro (DiagnosisEngine) não dependem de
+    plataforma; se um dia houver CI Linux, valem um projeto de teste separado
+    apontando só para SmbSpeedDoctor.Core — ver docs/ADR-0002-separacao-plataforma.md.
+  -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -24,6 +31,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SmbSpeedDoctor.Core\SmbSpeedDoctor.Core.csproj" />
+    <ProjectReference Include="..\..\src\SmbSpeedDoctor.Core.Windows\SmbSpeedDoctor.Core.Windows.csproj" />
     <ProjectReference Include="..\..\src\SmbSpeedDoctor.Cli\SmbSpeedDoctor.Cli.csproj" />
   </ItemGroup>
 

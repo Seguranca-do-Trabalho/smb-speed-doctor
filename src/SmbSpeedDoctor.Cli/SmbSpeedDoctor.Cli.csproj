@@ -3,7 +3,9 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Depende da coleta Windows (WMI); o publish já era win-x64 apenas. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>SmbSpeedDoctor.Cli</RootNamespace>
@@ -12,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SmbSpeedDoctor.Core\SmbSpeedDoctor.Core.csproj" />
+    <ProjectReference Include="..\SmbSpeedDoctor.Core.Windows\SmbSpeedDoctor.Core.Windows.csproj" />
   </ItemGroup>
 
 </Project>

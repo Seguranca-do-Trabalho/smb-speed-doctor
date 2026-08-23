@@ -269,7 +269,17 @@ Erros são acumulados mas **não lançam exceção** — o scan continua com val
 Busca realizada nos diretórios `src/` e `tests/` por padrões:
 - `password`, `secret`, `key`, `token`, `credential`, `api_key`, `api-key`, `apikey`
 
-**Resultado:** 0 correspondências relevantes. Nenhum segredo, senha, chave API ou token hard-coded foi encontrado.
+**Resultado:** 0 correspondências em `src/` e `tests/`.
+
+> **⚠️ Ressalva de escopo (correção posterior).** A conclusão original — "nenhum
+> segredo no repositório" — extrapolava a busca realizada. O escopo foram
+> `src/` e `tests/`; **`docs/` ficou de fora**, e era exatamente onde havia uma
+> senha em texto plano (`docs/AUDIT-1.1.0.md`, desde então removida e com a
+> rotação da credencial `hermes-smb` agora obrigatória).
+>
+> Uma varredura de segredos precisa cobrir **todo** o repositório e o
+> **histórico** (`git log -S`), não apenas os diretórios de código. Conclusão
+> mais ampla que a evidência é como o problema passou despercebido.
 
 ### 7.2 Caminhos absolutos expostos
 

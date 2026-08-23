@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Coleta dependente de Windows (WMI via System.Management, contadores de
+    desempenho, SMB client config). Separado de SmbSpeedDoctor.Core para que o
+    domínio puro — modelo, motor de diagnóstico e baseline — permaneça
+    net8.0 e livre de qualquer API específica de plataforma.
+
+    Antes tudo morava em Core com TargetFramework net8.0, o que gerava 42
+    avisos CA1416 ("só há suporte no Windows") e prometia uma portabilidade
+    que não existia. Este projeto é o lugar honesto para esse código.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SmbSpeedDoctor.Core.Windows</RootNamespace>
+    <!-- Permite compilar a partir do Linux; executar continua exigindo Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SmbSpeedDoctor.Core\SmbSpeedDoctor.Core.csproj" />
+  </ItemGroup>
+
+</Project>
