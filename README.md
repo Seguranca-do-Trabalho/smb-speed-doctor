@@ -72,9 +72,22 @@ uma rede parada. Detalhes e o caso real em
 Requisito: .NET 8 SDK (neste host, instalado em `~/.dotnet`).
 
 ```bash
-./build.sh            # restore + build Debug + testes unitários
-./build.sh publish    # binários win-x64 em dist/ (CLI + GUI)
+./build.sh                        # restore + build Debug + testes unitários
+./build.sh publish                # win-x64 em dist/ (CLI) e dist/Gui/ (GUI)
+./build.sh publish-selfcontained  # win-x64 sem dependência de .NET instalado
 ```
+
+O `publish` normal é **framework-dependent**: a máquina alvo precisa do **.NET 8
+Desktop Runtime (x64)**. Para endpoints que não têm .NET, use
+`publish-selfcontained` (~150 MB por app, sem pré-requisito).
+
+> ⚠️ **Nunca publique por cima de uma pasta `dist/` antiga.** O `dotnet publish`
+> não remove arquivos que sobraram. Um publish self-contained anterior deixa
+> `hostfxr.dll`/`hostpolicy.dll`/`coreclr.dll` na pasta; ao publicar
+> framework-dependent por cima, o `.exe` usa esse host local antigo em vez do
+> host do sistema e falha com *"You must install or update .NET to run this
+> application"* — **numa máquina que tem o .NET instalado**. Já aconteceu.
+> O `build.sh` limpa `dist/` automaticamente; se publicar à mão, limpe antes.
 
 ### CLI no Windows (terminal/RMM)
 
@@ -120,8 +133,12 @@ Sem `--path` o scan é parcial: ele reporta os sinais diretos e declara, em
 
 ### GUI
 
-Execute `SmbSpeedDoctor.Gui.exe`: janela única com botão MEDIR AGORA e lista
-de achados.
+Execute `dist/Gui/SmbSpeedDoctor.Gui.exe`: janela única com campo de
+compartilhamento, botão **MEDIR AGORA** e lista de achados.
+
+**Informe o compartilhamento** no campo (ou use *Procurar…*). Sem caminho, a GUI
+faz scan parcial e diz explicitamente que o throughput não foi medido — ela não
+inventa um veredito.
 
 ### Scripts de remediação (sempre com Apply/Rollback/Status)
 

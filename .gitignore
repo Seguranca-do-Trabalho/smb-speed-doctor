@@ -7,5 +7,6 @@ dist/
 TestResults/
 
 dist_linux/
+dist-selfcontained/
 *.exe
 

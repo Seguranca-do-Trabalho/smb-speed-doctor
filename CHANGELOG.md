@@ -102,6 +102,21 @@ problemas.
   botão *Procurar…* (`FolderBrowserDialog`) e o caminho é repassado ao scanner.
   A janela cresceu para 620×520 para acomodar.
 
+### Corrigido — empacotamento
+
+- **`build.sh publish` não limpava `dist/`.** O `dotnet publish` não remove
+  arquivos de um publish anterior. Restos de um publish **self-contained**
+  (`hostfxr.dll`, `hostpolicy.dll`, `coreclr.dll`) ficavam na pasta; ao publicar
+  **framework-dependent** por cima, o `.exe` passava a usar esse host local
+  antigo em vez do host do sistema, não localizava o runtime compartilhado e
+  falhava com *"You must install or update .NET to run this application"* — em
+  máquina **com** .NET 8 instalado e íntegro. Reproduzido em campo: a pasta
+  tinha **469 arquivos** onde um publish limpo tem **10**.
+  `build.sh` passou a limpar `dist/` antes de publicar; a GUI vai para
+  `dist/Gui/` e o CLI para `dist/`, sem misturar.
+- **Novo alvo `./build.sh publish-selfcontained`**: gera binários que não
+  dependem de .NET instalado no endpoint — útil para deploy via RMM.
+
 ### Alterado — arquitetura
 
 - **Separação de plataforma**: novo projeto `SmbSpeedDoctor.Core.Windows`
