@@ -12,6 +12,8 @@ public partial class MainForm : Form
     private TextBox _pathBox;
     private FlowLayoutPanel _resultsPanel;
     private Label _statusLabel;
+    private Label _speedLabel;
+    private Label _detailLabel;
     private bool _scanning;
 
     public MainForm()
@@ -23,7 +25,7 @@ public partial class MainForm : Form
     private void InitializeComponent()
     {
         this.Text = "SMB Speed Doctor";
-        this.Size = new System.Drawing.Size(620, 520);
+        this.Size = new System.Drawing.Size(620, 600);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.FormBorderStyle = FormBorderStyle.FixedSingle;
         this.MaximizeBox = false;
@@ -81,15 +83,43 @@ public partial class MainForm : Form
         };
         this.Controls.Add(_statusLabel);
 
+        // A MEDIÇÃO em destaque. A janela mostrava só achados e veredito; o
+        // número de velocidade — razão de existir da ferramenta — não aparecia
+        // em lugar nenhum da GUI.
+        _speedLabel = new Label
+        {
+            Text = "—",
+            Font = new System.Drawing.Font("Segoe UI", 15f, System.Drawing.FontStyle.Bold),
+            Location = new System.Drawing.Point(20, 178),
+            Size = new System.Drawing.Size(568, 30),
+            ForeColor = System.Drawing.Color.DimGray
+        };
+        this.Controls.Add(_speedLabel);
+
+        _detailLabel = new Label
+        {
+            Text = "",
+            Font = new System.Drawing.Font("Segoe UI", 8.5f),
+            Location = new System.Drawing.Point(20, 208),
+            Size = new System.Drawing.Size(568, 20),
+            ForeColor = System.Drawing.Color.DimGray
+        };
+        this.Controls.Add(_detailLabel);
+
         _resultsPanel = new FlowLayoutPanel
         {
-            Location = new System.Drawing.Point(20, 180),
-            Size = new System.Drawing.Size(568, 290),
+            Location = new System.Drawing.Point(20, 234),
+            Size = new System.Drawing.Size(568, 306),
             AutoScroll = true,
             BackColor = Color.White
         };
         this.Controls.Add(_resultsPanel);
     }
+
+    private static string FormatBytes(long bytes)
+        => bytes >= 1024 * 1024 ? string.Format("{0:N0} MB", bytes / (1024 * 1024))
+         : bytes >= 1024        ? string.Format("{0:N0} KB", bytes / 1024)
+         : string.Format("{0:N0} B", bytes);
 
     private void BrowseButton_Click(object sender, EventArgs e)
     {
@@ -110,6 +140,9 @@ public partial class MainForm : Form
         _scanButton.Enabled = false;
         _browseButton.Enabled = false;
         _resultsPanel.Controls.Clear();
+        _speedLabel.Text = "—";
+        _speedLabel.ForeColor = System.Drawing.Color.DimGray;
+        _detailLabel.Text = "";
 
         string sharePath = (_pathBox.Text ?? string.Empty).Trim();
         _statusLabel.Text = sharePath.Length > 0
@@ -119,9 +152,30 @@ public partial class MainForm : Form
 
         try
         {
-            var data = await System.Threading.Tasks.Task.Run(
-                () => new WindowsScanner(sharePath: sharePath).Collect());
+            var scanner = new WindowsScanner(sharePath: sharePath);
+            var data = await System.Threading.Tasks.Task.Run(() => scanner.Collect());
             var result = new DiagnosisEngine().Diagnose(data);
+
+            // --- A medição, em destaque ---
+            if (data.ThroughputQuality == MeasurementQuality.Unavailable)
+            {
+                _speedLabel.Text = "Velocidade não medida";
+                _speedLabel.ForeColor = System.Drawing.Color.DarkOrange;
+                _detailLabel.Text = "Informe um compartilhamento para executar a cópia de teste.";
+            }
+            else
+            {
+                double mbps = data.ObservedCopyThroughputBps / 1_000_000.0;
+                string origem = data.ThroughputQuality == MeasurementQuality.Measured
+                    ? "cópia de teste real"
+                    : "estimativa por tráfego de rede";
+                _speedLabel.Text = string.Format("{0:N2} MB/s", mbps);
+                _speedLabel.ForeColor = System.Drawing.Color.FromArgb(0, 90, 156);
+                _detailLabel.Text = string.Format(
+                    "{0}  ·  latência {1:N1} ms  ·  enlace {2:N0} Mb/s  ·  {3:N0} arquivos (média {4})",
+                    origem, data.LatencyMs, data.LinkSpeedBps / 1_000_000.0,
+                    data.FileCount, FormatBytes((long)data.AverageFileBytes));
+            }
 
             _statusLabel.Text = result.OneLineSummary;
             _statusLabel.ForeColor = result.Severity switch
@@ -205,6 +259,28 @@ public partial class MainForm : Form
                 remPanel.Controls.Add(remDesc);
 
                 _resultsPanel.Controls.Add(remPanel);
+            }
+
+            // Notas da coleta: caminho roteado por VPN, amostragem truncada,
+            // queda para aproximação. Eram calculadas e descartadas.
+            foreach (var nota in scanner.CollectionErrors)
+            {
+                var notaPanel = new Panel
+                {
+                    Size = new System.Drawing.Size(540, 54),
+                    BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
+                    BackColor = System.Drawing.Color.FromArgb(245, 245, 245),
+                    Margin = new Padding(0, 0, 0, 5)
+                };
+                notaPanel.Controls.Add(new Label
+                {
+                    Text = "nota: " + nota,
+                    Font = new System.Drawing.Font("Segoe UI", 8f),
+                    ForeColor = System.Drawing.Color.DimGray,
+                    Location = new System.Drawing.Point(8, 5),
+                    Size = new System.Drawing.Size(524, 44)
+                });
+                _resultsPanel.Controls.Add(notaPanel);
             }
         }
         catch (Exception ex)
