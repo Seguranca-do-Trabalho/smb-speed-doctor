@@ -1,0 +1,110 @@
+name: CI
+
+# Roda a cada push e pull request. O objetivo nao e so "testes passam": cada
+# job abaixo trava a volta de um defeito que ja chegou ao repositorio.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-e-testes:
+    name: Build + testes (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore SmbSpeedDoctor.sln
+
+      # TreatWarningsAsErrors trava o estado de ZERO avisos.
+      # O repo ja conviveu com 52 avisos (42 CA1416 de WMI num projeto marcado
+      # como multiplataforma); volume assim anestesia e esconde aviso novo —
+      # os 10 de nulabilidade estavam encobertos por eles.
+      - name: Build (avisos = erro)
+        run: dotnet build SmbSpeedDoctor.sln -c Release --no-restore -warnaserror
+
+      - name: Testes
+        run: dotnet test SmbSpeedDoctor.sln -c Release --no-build --verbosity normal
+
+  scripts-powershell:
+    name: Scripts em PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 5 dos 6 scripts NAO COMPILAVAM no Windows PowerShell 5.1 — o shell
+      # padrao do Windows 10/11 e o usado por RMM — enquanto compilavam no
+      # PowerShell 7. Uma verificacao feita so no 7 nao pega isso.
+      - name: Parse no Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $falhas = 0
+          Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
+            $erros = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$erros)
+            if ($erros -and $erros.Count) {
+              Write-Host "FALHA  $($_.Name): $($erros[0].Message)"
+              $falhas++
+            } else { Write-Host "OK     $($_.Name)" }
+          }
+          if ($falhas) { throw "$falhas script(s) nao compilam no PowerShell 5.1" }
+
+      # Causa raiz daquelas falhas: arquivos UTF-8 SEM BOM. O 5.1 assume ANSI
+      # nesse caso, os acentos viram mojibake e a corrupcao quebra terminadores
+      # de string. O BOM e o que mantem os scripts validos nos dois shells.
+      - name: Todo .ps1 precisa de BOM UTF-8
+        shell: powershell
+        run: |
+          $semBom = @()
+          Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
+            $b = [System.IO.File]::ReadAllBytes($_.FullName)
+            if ($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF) {
+              $semBom += $_.Name
+            }
+          }
+          if ($semBom.Count) {
+            throw "sem BOM UTF-8 (quebra no PowerShell 5.1): $($semBom -join ', ')"
+          }
+          Write-Host "todos os .ps1 com BOM UTF-8"
+
+      # Ternario '? :', null-coalescing '??' e '?.' so existem no PowerShell 7.
+      - name: Sem sintaxe exclusiva do PowerShell 7
+        shell: powershell
+        run: |
+          $achados = Select-String -Path scripts\*.ps1, scripts\remediation\*.ps1 `
+            -Pattern '\)\s*\?\s*$|\?\?|\?\.' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Line -notmatch '^\s*#' }
+          if ($achados) {
+            $achados | ForEach-Object { Write-Host "$($_.Filename):$($_.LineNumber): $($_.Line.Trim())" }
+            throw "sintaxe exclusiva do PowerShell 7 encontrada"
+          }
+          Write-Host "nenhuma sintaxe PS7-only"
+
+  segredos:
+    name: Varredura de segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historico inteiro, nao so o ultimo commit
+
+      # Uma senha em texto plano ja chegou ao repositorio — dentro do proprio
+      # parecer de auditoria que afirmava nao haver segredos. A varredura
+      # original cobria so src/ e tests/; docs/ ficou de fora, e era ali.
+      # Esta cobre o repositorio TODO e o historico.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
