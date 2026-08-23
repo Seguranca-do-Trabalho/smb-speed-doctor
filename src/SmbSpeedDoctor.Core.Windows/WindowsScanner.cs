@@ -232,12 +232,30 @@ public sealed class WindowsSmbCollector : ISmbCollector
         }
     }
 
+    /// <summary>
+    /// A conexão WMI pertence ao servidor alvo?
+    ///
+    /// Sem este filtro, os coletores devolviam dados da PRIMEIRA conexão SMB da
+    /// máquina, qualquer que fosse ela — o relatório dizia "dialeto 3.1.1" do
+    /// alvo quando o número vinha de outro servidor. Alvo indefinido
+    /// (loopback/caminho local) não casa com nada: melhor reportar "sem conexão
+    /// ativa" do que emprestar o dado de outra conexão.
+    /// </summary>
+    private static bool ConexaoDoAlvo(ManagementBaseObject o, string server)
+    {
+        if (string.IsNullOrWhiteSpace(server) || server is "loopback" or "127.0.0.1")
+            return false;
+        var nome = o.GetPropertyValue("ServerName")?.ToString();
+        return string.Equals(nome, server, StringComparison.OrdinalIgnoreCase);
+    }
+
     public string GetNegotiatedDialect(string server)
     {
         try
         {
             foreach (var o in SmbScope("MSFT_SmbConnection").Get())
             {
+                if (!ConexaoDoAlvo(o, server)) continue;
                 var dialectObj = o.GetPropertyValue("Dialect");
                 if (dialectObj != null)
                     return dialectObj.ToString() ?? "desconhecido";
@@ -257,6 +275,7 @@ public sealed class WindowsSmbCollector : ISmbCollector
         {
             foreach (var o in SmbScope("MSFT_SmbConnection").Get())
             {
+                if (!ConexaoDoAlvo(o, server)) continue;
                 var mc = o.GetPropertyValue("MultiChannel");
                 if (mc != null)
                     return Convert.ToBoolean(mc);
@@ -274,8 +293,12 @@ public sealed class WindowsSmbCollector : ISmbCollector
     {
         try
         {
+            // Só as conexões DO ALVO. Antes contava todas as conexões SMB da
+            // máquina: com dois servidores montados, o alvo aparecia com 2
+            // canais e o multichannel era avaliado sobre um número inventado.
             int count = 0;
-            foreach (var _ in SmbScope("MSFT_SmbConnection").Get()) count++;
+            foreach (var o in SmbScope("MSFT_SmbConnection").Get())
+                if (ConexaoDoAlvo(o, server)) count++;
             return count;
         }
         catch (Exception ex)
@@ -485,6 +508,80 @@ public sealed class WindowsScanner : IScanner
     private readonly string _path;
     private readonly bool _noCopy;
 
+    /// <summary>
+    /// O IP do alvo está numa sub-rede diretamente conectada a alguma interface
+    /// física? Se não, o caminho é ROTEADO (VPN/túnel/WAN) e a velocidade do
+    /// enlace local não limita o percurso.
+    ///
+    /// Devolve null quando não dá para afirmar (nome não resolvido, sem IP).
+    /// </summary>
+    public static bool? AlvoNaSubredeLocal(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target) || target is "loopback") return null;
+        if (!System.Net.IPAddress.TryParse(target, out var ip)) return null;
+        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return null;
+
+        var alvo = ip.GetAddressBytes();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback
+                                        or NetworkInterfaceType.Tunnel) continue;
+
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+                var mascara = ua.IPv4Mask;
+                if (mascara is null) continue;
+
+                var loc = ua.Address.GetAddressBytes();
+                var msk = mascara.GetAddressBytes();
+                bool mesma = true;
+                for (int i = 0; i < 4 && mesma; i++)
+                    mesma = (loc[i] & msk[i]) == (alvo[i] & msk[i]);
+                if (mesma) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Registra que a velocidade do enlace local NÃO limita o caminho quando o
+    /// alvo é roteado. As regras de eficiência dividem throughput pela
+    /// LinkSpeed; num alvo atrás de VPN isso compara a taxa do túnel com a
+    /// velocidade da NIC física — denominador errado, que pode tanto esconder
+    /// um gargalo quanto inventar um.
+    /// </summary>
+    private void AvisarSeAlvoForaDoEnlaceLocal(string target, long linkBps)
+    {
+        if (linkBps <= 0) return;
+        var local = AlvoNaSubredeLocal(target);
+        if (local == false)
+        {
+            CollectionErrors.Add(
+                $"alvo {target} não está numa sub-rede diretamente conectada: o caminho é " +
+                $"roteado (VPN/túnel/WAN). A velocidade do enlace local " +
+                $"({linkBps / 1_000_000.0:F0} Mb/s) NÃO limita esse percurso — leia a " +
+                "eficiência relativa ao enlace com essa ressalva.");
+        }
+    }
+
+    /// <summary>
+    /// Extrai o servidor de um caminho UNC: <c>\\servidor\share</c> → <c>servidor</c>.
+    /// Devolve null para caminho local ou vazio.
+    /// </summary>
+    public static string? ExtractServerFromUnc(string? sharePath)
+    {
+        if (string.IsNullOrWhiteSpace(sharePath)) return null;
+        var p = sharePath.Trim();
+        if (!p.StartsWith(@"\\") && !p.StartsWith("//")) return null;
+
+        var resto = p.Substring(2);
+        int corte = resto.IndexOfAny(new[] { '\\', '/' });
+        var servidor = corte > 0 ? resto.Substring(0, corte) : resto;
+        return string.IsNullOrWhiteSpace(servidor) ? null : servidor;
+    }
+
     // Parâmetros anotados como nuláveis porque a CLI legitimamente passa null
     // quando --path é omitido. A normalização abaixo é a fronteira: a partir
     // daqui _target e _path nunca são nulos.
@@ -492,8 +589,20 @@ public sealed class WindowsScanner : IScanner
     {
         // Item 1 (Solução B): normalização na fronteira — null vira neutro aqui,
         // então TODAS as referências internas a _path/_target ficam seguras.
-        _target = targetServer ?? "loopback";
         _path = sharePath ?? string.Empty;
+
+        // O ALVO SAI DO PRÓPRIO SHARE quando não foi informado explicitamente.
+        //
+        // A CLI só passa sharePath; targetServer ficava no default "loopback" e
+        // TODA a camada de rede/SMB media contra 127.0.0.1: latência dava 0 e o
+        // dialeto/multichannel vinham de outra conexão qualquer da máquina. Ou
+        // seja, apontar para \\servidor\share não fazia o scanner olhar para
+        // esse servidor.
+        var explicito = !string.IsNullOrWhiteSpace(targetServer) && targetServer != "loopback";
+        _target = explicito
+            ? targetServer!
+            : (ExtractServerFromUnc(_path) ?? "loopback");
+
         _noCopy = noCopy;
     }
 
@@ -533,6 +642,8 @@ public sealed class WindowsScanner : IScanner
         bool hasPath = _path.Length > 0;
         long avgFile = hasPath ? workload.GetAverageFileSize(_path) : 0;
         int fileCount = hasPath ? workload.GetFileCount(_path) : 0;
+
+        AvisarSeAlvoForaDoEnlaceLocal(_target, linkBps);
 
         CollectionErrors.AddRange(network.Errors);
         CollectionErrors.AddRange(smb.Errors);

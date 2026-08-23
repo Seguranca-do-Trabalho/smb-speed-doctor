@@ -215,8 +215,17 @@ public sealed class RealCopyProbe
     }
 
     /// <summary>Formatação para MB/s com cultura invariant (dois decimais).</summary>
+    /// <summary>
+    /// Formata bytes/s como MB/s DECIMAL (10^6), convenção para throughput de
+    /// rede e armazenamento.
+    ///
+    /// Antes dividia por 1024² (MiB) mas rotulava "MB/s", enquanto o JSON
+    /// expunha o mesmo dado em MB decimal — o relatório trazia dois números
+    /// diferentes para a mesma medição, ambos chamados "MB/s"
+    /// (89.48 e 85.33). Unificado em decimal.
+    /// </summary>
     public static string FormatMBps(double bps)
-        => (bps / (1024.0 * 1024.0)).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        => (bps / 1_000_000.0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Descrição legível do resultado (usado em logs/erros).</summary>
     public static string Describe(CopyProbeResult r)

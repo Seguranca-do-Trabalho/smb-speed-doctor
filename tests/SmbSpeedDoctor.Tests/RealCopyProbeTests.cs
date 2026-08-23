@@ -149,19 +149,22 @@ public class RealCopyProbeTests : IDisposable
     [Fact]
     public void FormatMBps_usa_cultura_invariante()
     {
-        Assert.Equal("10.00", RealCopyProbe.FormatMBps(10L * 1024 * 1024));
-        Assert.Equal("0.50", RealCopyProbe.FormatMBps(512 * 1024));
+        // MB DECIMAL (10^6), nao MiB: throughput de rede se expressa assim, e
+        // o JSON usa a mesma base. Antes as duas bases conviviam no mesmo
+        // relatorio, ambas rotuladas "MB/s".
+        Assert.Equal("10.00", RealCopyProbe.FormatMBps(10_000_000));
+        Assert.Equal("0.50", RealCopyProbe.FormatMBps(500_000));
 
         // A unidade é adicionada por Describe, não pelo formatador numérico.
         string described = RealCopyProbe.Describe(
-            new CopyProbeResult(true, 10L * 1024 * 1024, 0, 0, null));
+            new CopyProbeResult(true, 10_000_000, 0, 0, null));
         Assert.Contains("10.00 MB/s", described);
     }
 
     [Fact]
     public void Describe_mostra_write_read_e_teto_efetivo()
     {
-        var result = new CopyProbeResult(true, 200L * 1024 * 1024, 100L * 1024 * 1024, 100L * 1024 * 1024, null);
+        var result = new CopyProbeResult(true, 200_000_000, 100_000_000, 100_000_000, null);
 
         string s = RealCopyProbe.Describe(result);
 
