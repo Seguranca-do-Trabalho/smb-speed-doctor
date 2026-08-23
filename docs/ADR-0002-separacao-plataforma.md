@@ -87,5 +87,35 @@ removido no mesmo movimento.
 
 ```
 dotnet build SmbSpeedDoctor.sln --no-incremental   → 0 avisos, 0 erros
-dotnet test  SmbSpeedDoctor.sln                    → 44/44 aprovados
+dotnet test  SmbSpeedDoctor.sln                    → 53/53 aprovados
 ```
+
+### Prova em Linux (não é só afirmação)
+
+A portabilidade do `Core` foi **executada**, não apenas alegada — precisamente o
+erro do parecer anterior, que classificou os 42 CA1416 como "degradação
+graciosa" sem nunca ter rodado nada fora do Windows.
+
+Ambiente: WSL Ubuntu 24.04.4 LTS x64, .NET SDK 8.0.130 dos repositórios do
+Ubuntu. Repositório clonado a partir da cópia local (sem rede, sem credencial).
+
+| Verificação | Resultado |
+|---|---|
+| `dotnet build` de `SmbSpeedDoctor.Core` em Linux | **0 avisos, 0 erros** |
+| `dotnet build` de `SmbSpeedDoctor.Core.Windows` em Linux | compila (cross) via `EnableWindowsTargeting`; executar continua exigindo Windows |
+| `DiagnosisEngine` **executado** em Linux | 7/7 cenários com veredito idêntico ao Windows |
+
+Cenários executados em Linux, todos conferindo: assinatura como gargalo com rede
+saturada, perfil saudável, medição ausente não acusando assinatura nem
+recomendando remediação, criptografia suplantando assinatura, multichannel no
+balde próprio, e dialeto desconhecido não sendo classificado como moderno.
+
+Isso confirma que a fronteira desenhada aqui é real: toda a lógica de decisão
+vive no lado portátil, e o lado Windows é só coleta.
+
+### Follow-up agora demonstrado como viável
+
+A separação dos projetos de teste (`net8.0` para domínio, `net8.0-windows` para
+coleta), registrada acima como dívida, deixou de ser hipótese: o domínio
+comprovadamente compila e roda em Linux. Falta apenas mover os testes de
+`DiagnosisEngineTests` para um projeto `net8.0` quando houver CI Linux.
