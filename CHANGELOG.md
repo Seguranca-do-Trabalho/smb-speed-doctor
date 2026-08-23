@@ -62,6 +62,14 @@ problemas.
 - **`Enable-SmbMultichannel.ps1 -Status` imprimia contagem vazia**
   ("Apenas ␣ NIC ativa detectada"): com uma única NIC o retorno é escalar e
   `.Count` sai vazio no 5.1. Corrigido com `@()` nos dois pontos de uso.
+- **`-Apply` e `-Rollback` travavam indefinidamente em sessão não-interativa.**
+  `Set-SmbClientConfiguration` pede confirmação por padrão; os scripts não
+  passavam `-Confirm:$false` para o cmdlet. Rodando por RMM — o caso de uso
+  anunciado — o script ficava parado num prompt que ninguém vê, **inclusive no
+  `-Rollback`**, que é o caminho de emergência. Descoberto quando o ciclo de
+  teste automatizado travou. Corrigido nos 4 pontos
+  (`Set-SmbSigningOptimized` apply/rollback, `Enable-SmbMultichannel`
+  apply/rollback).
 
 ### Corrigido — funcionalidade
 
@@ -83,6 +91,16 @@ problemas.
   chamado sem guarda (só `GetFileCount` tinha), estourava internamente e o
   `catch` amplo registrava `"workload: Value cannot be null"` em
   `CollectionErrors`. Guarda simétrica aplicada.
+
+### Adicionado
+
+- **Campo de caminho na GUI.** `MainForm` chamava `new WindowsScanner()` sem
+  `sharePath` e não tinha onde informar o share — ou seja, a janela só sabia
+  fazer scan **parcial**. Antes isso passava despercebido porque o scan sem
+  medição produzia o falso positivo de assinatura; com o diagnóstico honesto, a
+  GUI passaria a dizer "scan parcial" para sempre. Agora há caixa de texto,
+  botão *Procurar…* (`FolderBrowserDialog`) e o caminho é repassado ao scanner.
+  A janela cresceu para 620×520 para acomodar.
 
 ### Alterado — arquitetura
 
@@ -118,13 +136,18 @@ problemas.
   `scan --json` → exit 0 sem remediação (antes: exit 2 recomendando desligar
   assinatura); `scan --json --path <dir>` → 95% de confiança, 85,3 MB/s
   (inalterado); wrapper RMM executando nos dois modos.
-- **Scripts de remediação executados elevados** (UAC) em modo `-Status`
-  read-only sob PowerShell 5.1: os 6 compilam em 5.1, `cmd.exe` e 7; NIC tuning
-  e multichannel imprimem status correto; `Enable-JumboFrames -Status` testa o
-  caminho até o gateway. A trava de segurança foi validada em execução real —
-  `-Apply` sem `-AcceptGlobalSecurityImpact` é recusado e o estado SMB da
-  máquina permanece idêntico antes/depois.
-  Não executado: `-Apply` de fato (altera configuração da máquina) e a GUI.
+- **Scripts de remediação executados elevados** (UAC) sob PowerShell 5.1: os 6
+  compilam em 5.1, `cmd.exe` e 7; NIC tuning e multichannel imprimem status
+  correto; `Enable-JumboFrames -Status` testa o caminho até o gateway. A trava
+  de segurança foi validada em execução real — `-Apply` sem
+  `-AcceptGlobalSecurityImpact` é recusado e o estado SMB permanece idêntico.
+- **Ciclo `-Apply` → `-Rollback` executado de verdade** em máquina fixa de
+  segmento controlado, com autorização do dono:
+  `Require=True` → apply → `Require=False` (mudança real, backup gravado com os
+  valores originais) → rollback → `Require=True`. Estado final conferido por
+  leitura independente do `Get-SmbClientConfiguration`, fora do script.
+- **GUI**: publicada, abre e responde no Windows real. Ganhou campo de caminho
+  (ver Adicionado); a validação visual dos resultados fica com o time.
 
 ### Pendente
 

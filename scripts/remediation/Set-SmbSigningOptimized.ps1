@@ -118,8 +118,12 @@ function Restore-State {
     }
     $state = Get-Content $BackupFile | ConvertFrom-Json
     Write-Host "Restaurando estado: $($state | ConvertTo-Json)" -ForegroundColor Yellow
-    Set-SmbClientConfiguration -RequireSecuritySignature $state.RequireSecuritySignature
-    Set-SmbClientConfiguration -EnableSecuritySignature $state.EnableSecuritySignature
+    # -Confirm:$false: Set-SmbClientConfiguration pede confirmacao interativa por
+    # padrao. Sem isto o script TRAVA indefinidamente quando rodado por RMM ou
+    # em qualquer sessao nao-interativa — pior ainda no rollback, que e
+    # justamente o caminho de emergencia.
+    Set-SmbClientConfiguration -RequireSecuritySignature $state.RequireSecuritySignature -Confirm:$false
+    Set-SmbClientConfiguration -EnableSecuritySignature $state.EnableSecuritySignature -Confirm:$false
     Write-Host "Estado restaurado com sucesso." -ForegroundColor Green
 }
 
@@ -152,8 +156,11 @@ Se isso é aceitável para esta máquina, repita com -AcceptGlobalSecurityImpact
     # EnableSecuritySignature $true   → mantém negociável (servidor ainda pode exigir)
     if ($PSCmdlet.ShouldProcess("SMB Client Configuration (máquina inteira)",
                                 "Remover obrigatoriedade de assinatura SMB")) {
-        Set-SmbClientConfiguration -RequireSecuritySignature $false
-        Set-SmbClientConfiguration -EnableSecuritySignature $true
+        # -Confirm:$false pelo mesmo motivo do rollback: sem isto o cmdlet abre
+        # prompt e o script trava em execucao nao-interativa. A confirmacao
+        # deliberada aqui e o -AcceptGlobalSecurityImpact, verificado acima.
+        Set-SmbClientConfiguration -RequireSecuritySignature $false -Confirm:$false
+        Set-SmbClientConfiguration -EnableSecuritySignature $true -Confirm:$false
         Write-Host "Configuração aplicada:" -ForegroundColor Green
         Write-Host "  RequireSecuritySignature = false (não obrigatório) — TODAS as conexões"
         Write-Host "  EnableSecuritySignature  = true  (negociável)"

@@ -8,6 +8,8 @@ namespace SmbSpeedDoctor.Gui;
 public partial class MainForm : Form
 {
     private Button _scanButton;
+    private Button _browseButton;
+    private TextBox _pathBox;
     private FlowLayoutPanel _resultsPanel;
     private Label _statusLabel;
     private bool _scanning;
@@ -21,7 +23,7 @@ public partial class MainForm : Form
     private void InitializeComponent()
     {
         this.Text = "SMB Speed Doctor";
-        this.Size = new System.Drawing.Size(600, 400);
+        this.Size = new System.Drawing.Size(620, 520);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.FormBorderStyle = FormBorderStyle.FixedSingle;
         this.MaximizeBox = false;
@@ -29,12 +31,43 @@ public partial class MainForm : Form
 
     private void SetupUi()
     {
+        // Campo de caminho: sem alvo não há cópia de teste e, portanto, não há
+        // medição de throughput — o diagnóstico sai parcial. A janela não tinha
+        // como informar o share, então só sabia produzir scan parcial.
+        var pathLabel = new Label
+        {
+            Text = "Compartilhamento a medir (\\\\servidor\\share ou pasta local):",
+            Font = new System.Drawing.Font("Segoe UI", 9f),
+            Location = new System.Drawing.Point(20, 15),
+            Size = new System.Drawing.Size(568, 18)
+        };
+        this.Controls.Add(pathLabel);
+
+        _pathBox = new TextBox
+        {
+            Font = new System.Drawing.Font("Segoe UI", 10f),
+            Location = new System.Drawing.Point(20, 36),
+            Size = new System.Drawing.Size(480, 25),
+            PlaceholderText = @"\\servidor\share   (vazio = scan parcial, sem medir throughput)"
+        };
+        this.Controls.Add(_pathBox);
+
+        _browseButton = new Button
+        {
+            Text = "Procurar…",
+            Font = new System.Drawing.Font("Segoe UI", 9f),
+            Location = new System.Drawing.Point(508, 35),
+            Size = new System.Drawing.Size(80, 27)
+        };
+        _browseButton.Click += BrowseButton_Click;
+        this.Controls.Add(_browseButton);
+
         _scanButton = new Button
         {
             Text = "MEDIR AGORA",
             Font = new System.Drawing.Font("Segoe UI", 14f, System.Drawing.FontStyle.Bold),
-            Size = new System.Drawing.Size(200, 60),
-            Location = new System.Drawing.Point(200, 20)
+            Size = new System.Drawing.Size(568, 50),
+            Location = new System.Drawing.Point(20, 72)
         };
         _scanButton.Click += ScanButton_Click;
         this.Controls.Add(_scanButton);
@@ -43,19 +76,30 @@ public partial class MainForm : Form
         {
             Text = "Pronto para diagnosticar",
             Font = new System.Drawing.Font("Segoe UI", 10f),
-            Location = new System.Drawing.Point(20, 90),
-            Size = new System.Drawing.Size(560, 30)
+            Location = new System.Drawing.Point(20, 132),
+            Size = new System.Drawing.Size(568, 42)
         };
         this.Controls.Add(_statusLabel);
 
         _resultsPanel = new FlowLayoutPanel
         {
-            Location = new System.Drawing.Point(20, 130),
-            Size = new System.Drawing.Size(560, 240),
+            Location = new System.Drawing.Point(20, 180),
+            Size = new System.Drawing.Size(568, 290),
             AutoScroll = true,
             BackColor = Color.White
         };
         this.Controls.Add(_resultsPanel);
+    }
+
+    private void BrowseButton_Click(object sender, EventArgs e)
+    {
+        using var dlg = new FolderBrowserDialog
+        {
+            Description = "Escolha o compartilhamento ou pasta a medir",
+            ShowNewFolderButton = false
+        };
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+            _pathBox.Text = dlg.SelectedPath;
     }
 
     private async void ScanButton_Click(object sender, EventArgs e)
@@ -64,13 +108,19 @@ public partial class MainForm : Form
         _scanning = true;
 
         _scanButton.Enabled = false;
+        _browseButton.Enabled = false;
         _resultsPanel.Controls.Clear();
-        _statusLabel.Text = "Coletando dados...";
+
+        string sharePath = (_pathBox.Text ?? string.Empty).Trim();
+        _statusLabel.Text = sharePath.Length > 0
+            ? string.Format("Medindo com cópia de teste em {0}… (pode levar alguns segundos)", sharePath)
+            : "Coletando dados… sem caminho informado, o throughput NÃO será medido.";
         _statusLabel.ForeColor = System.Drawing.Color.Blue;
 
         try
         {
-            var data = await System.Threading.Tasks.Task.Run(() => new WindowsScanner().Collect());
+            var data = await System.Threading.Tasks.Task.Run(
+                () => new WindowsScanner(sharePath: sharePath).Collect());
             var result = new DiagnosisEngine().Diagnose(data);
 
             _statusLabel.Text = result.OneLineSummary;
@@ -166,6 +216,7 @@ public partial class MainForm : Form
         {
             _scanning = false;
             _scanButton.Enabled = true;
+            _browseButton.Enabled = true;
         }
     }
 }

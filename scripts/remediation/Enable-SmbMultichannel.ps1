@@ -175,7 +175,9 @@ if ($Apply) {
         Save-Backup -value $current.EnableMultiChannel
         
         if (-not $current.EnableMultiChannel) {
-            Set-SmbClientConfiguration -EnableMultiChannel $true -ErrorAction Stop
+            # -Confirm:$false: sem isto o cmdlet abre prompt interativo e o
+            # script trava quando rodado por RMM ou sessao nao-interativa.
+            Set-SmbClientConfiguration -EnableMultiChannel $true -ErrorAction Stop -Confirm:$false
             Write-Host "✅ EnableMultiChannel definido como $true" -ForegroundColor Green
         } else {
             Write-Host "ℹ EnableMultiChannel já estava $true — nenhuma alteração necessária." -ForegroundColor Cyan
@@ -223,7 +225,8 @@ if ($Rollback) {
     }
     
     if ($PSCmdlet.ShouldProcess("SmbClientConfiguration", "Reverter EnableMultiChannel para estado anterior")) {
-        Set-SmbClientConfiguration -EnableMultiChannel $backup -ErrorAction Stop
+        # -Confirm:$false — o rollback nao pode travar num prompt.
+        Set-SmbClientConfiguration -EnableMultiChannel $backup -ErrorAction Stop -Confirm:$false
         Write-Host "✅ EnableMultiChannel revertido para $backup (backup de $($backup.Timestamp))" -ForegroundColor Green
     }
 }
