@@ -1,4 +1,4 @@
-# Criado por André Santo (forg3) | junkyardgoodies.app
+﻿# Criado por André Santo (forg3) | junkyardgoodies.app
 # Licença: MIT
 #
 # Item 8 — Perfil de desempenho Samba (lado servidor Linux)

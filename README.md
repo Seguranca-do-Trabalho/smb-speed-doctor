@@ -136,7 +136,14 @@ Em `scripts/remediation/`, todos fazem backup do estado anterior e revertem:
 | `Optimize-SambaServer.ps1` | Perfil servidor Samba (TCP_NODELAY, buffers 128K, AIO 16K) |
 
 Uso padrão: `-Apply` aplica (com backup), `-Rollback` reverte, `-Status`
-consulta. Leia a saída antes de aplicar — alguns passos exigem elevação.
+consulta. **Todos exigem PowerShell elevado** (Executar como Administrador);
+`-Status` também, por consultar configuração de sistema.
+
+Compatíveis com **Windows PowerShell 5.1** (o padrão do Windows 10/11, também
+via `cmd.exe`) e com o PowerShell 7. Até a 1.1.0, 5 dos 6 scripts **não
+compilavam no 5.1** — os arquivos eram UTF-8 sem BOM e um deles usava operador
+ternário, exclusivo do PS7. Se for editar estes scripts, **mantenha o UTF-8 com
+BOM**, ou os acentos quebram o parse no 5.1.
 O script gerado por `fix --export` também nunca executa nada sozinho:
 rode primeiro com `-WhatIf`.
 

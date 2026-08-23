@@ -1,4 +1,4 @@
-# Criado por André Santo (forg3) | junkyardgoodies.app
+﻿# Criado por André Santo (forg3) | junkyardgoodies.app
 # Licença: MIT
 #
 # Item 5 — SMB Multichannel (cliente Windows)
@@ -66,8 +66,10 @@ function Get-MultichannelStatus {
         Get-SmbMultichannelConnection -ErrorAction SilentlyContinue
     }
     
-    $nics = Get-ActiveNics -Computer $Computer
-    
+    # @() forca array: com UMA NIC o retorno e escalar e $nics.Count sai VAZIO
+    # no Windows PowerShell 5.1 — o status imprimia "Apenas  NIC ativa detectada".
+    $nics = @(Get-ActiveNics -Computer $Computer)
+
     $rssStatus = @{}
     foreach ($nic in $nics) {
         try {
@@ -184,8 +186,8 @@ if ($Apply) {
         Write-Host "   Estado confirmado: EnableMultiChannel = $($verify.EnableMultiChannel)" -ForegroundColor Gray
     }
     
-    # Aviso de viabilidade
-    $nics = Get-ActiveNics
+    # Aviso de viabilidade — @() pelo mesmo motivo do Get-Status
+    $nics = @(Get-ActiveNics)
     if ($nics.Count -lt 2) {
         Write-Host "" -ForegroundColor Yellow
         Write-Host "⚠ AVISO: Apenas $($nics.Count) NIC ativa detectada." -ForegroundColor Yellow

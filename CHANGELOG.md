@@ -38,6 +38,31 @@ binário de verdade.
   **A rotação da credencial no Samba é obrigatória**: o valor permanece em 2
   commits do histórico (`f460636`, `0843945`).
 
+### Corrigido — kit de remediação nunca rodou no Windows padrão
+
+Descoberto ao executar os scripts **elevados sob Windows PowerShell 5.1** (o
+shell padrão do Windows 10/11 e o usado por RMM). Uma verificação anterior havia
+passado por usar o parser do PowerShell 7, que não reproduz nenhum dos dois
+problemas.
+
+- **5 dos 6 scripts não compilavam no PowerShell 5.1** (todos compilavam no 7).
+  Os arquivos eram UTF-8 **sem BOM**; o 5.1 assume ANSI nesse caso, os acentos
+  viravam mojibake e a corrupção quebrava terminadores de string. Todos os
+  `.ps1` passaram a ser gravados como **UTF-8 com BOM**, que funciona nos dois.
+  Verificado também via `cmd.exe`.
+- **`Optimize-NicTuning.ps1` usava o operador ternário `? :`**, exclusivo do
+  PowerShell 7 — erro de sintaxe no 5.1 mesmo depois do BOM. Reescrito com
+  `if/else`.
+- **`Optimize-NicTuning.ps1 -Status` lançava exceção** ("chamar um método em uma
+  expressão de valor nulo"): procurava a string **em inglês**
+  `'Receive Window Auto-Tuning'` na saída do `netsh`, que é **localizada**. Num
+  Windows em português não casava, `$autotune` ficava `$null` e o `.Trim()`
+  estourava. Passou a usar `Get-NetTCPSetting` (independente de idioma), com
+  fallback tolerante a PT/EN e valor `n/d` quando indeterminado.
+- **`Enable-SmbMultichannel.ps1 -Status` imprimia contagem vazia**
+  ("Apenas ␣ NIC ativa detectada"): com uma única NIC o retorno é escalar e
+  `.Count` sai vazio no 5.1. Corrigido com `@()` nos dois pontos de uso.
+
 ### Corrigido — funcionalidade
 
 - **Wrapper RMM nunca executou.** `scripts/smbdoctor-rmm.ps1` usava `@rem`
@@ -93,6 +118,13 @@ binário de verdade.
   `scan --json` → exit 0 sem remediação (antes: exit 2 recomendando desligar
   assinatura); `scan --json --path <dir>` → 95% de confiança, 85,3 MB/s
   (inalterado); wrapper RMM executando nos dois modos.
+- **Scripts de remediação executados elevados** (UAC) em modo `-Status`
+  read-only sob PowerShell 5.1: os 6 compilam em 5.1, `cmd.exe` e 7; NIC tuning
+  e multichannel imprimem status correto; `Enable-JumboFrames -Status` testa o
+  caminho até o gateway. A trava de segurança foi validada em execução real —
+  `-Apply` sem `-AcceptGlobalSecurityImpact` é recusado e o estado SMB da
+  máquina permanece idêntico antes/depois.
+  Não executado: `-Apply` de fato (altera configuração da máquina) e a GUI.
 
 ### Pendente
 

@@ -1,4 +1,4 @@
-# Criado por André Santo (forg3) | junkyardgoodies.app
+﻿# Criado por André Santo (forg3) | junkyardgoodies.app
 # Licença: MIT
 #
 # Item 6 — NIC Tuning Kit (cliente Windows)
@@ -55,12 +55,29 @@ if ($Status -or (-not $Apply -and -not $Rollback)) {
             LinkSpeed    = $_.LinkSpeed
             RssEnabled   = if ($rss) { $rss.Enabled } else { 'n/d' }
             RssQueues    = if ($rss) { "$($rss.NumberOfReceiveQueues) filas" } else { '-' }
-            PowerSaving  = (Get-Member -InputObject $_ -Name AllowComputerToTurnOffDevice) ?
-                           ((Get-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue).AllowComputerToTurnOffDevice) : 'n/d'
+            # if/else em vez do operador ternario '? :': ternario so existe no
+            # PowerShell 7, e este kit precisa rodar no Windows PowerShell 5.1,
+            # que e o shell padrao do Windows 10/11 e o usado por RMM.
+            PowerSaving  = if (Get-Member -InputObject $_ -Name AllowComputerToTurnOffDevice) {
+                               (Get-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue).AllowComputerToTurnOffDevice
+                           } else { 'n/d' }
         } | Format-Table -AutoSize
     }
-    $autotune = netsh int tcp show global | Select-String 'Receive Window Auto-Tuning'
-    Write-Host "TCP Autotuning: $($autotune.Line.Trim())"
+    # Get-NetTCPSetting e independente de idioma. O netsh imprime texto
+    # LOCALIZADO: procurar 'Receive Window Auto-Tuning' nao casa num Windows em
+    # portugues, $autotune vinha $null e o .Trim() lancava
+    # "chamar um metodo em uma expressao de valor nulo".
+    $autotune = $null
+    try {
+        $autotune = (Get-NetTCPSetting -SettingName Internet -ErrorAction Stop).AutoTuningLevelLocal
+    }
+    catch {
+        $line = netsh int tcp show global |
+                Select-String -Pattern 'Auto-Tuning|Autoajuste|Ajuste autom' -ErrorAction SilentlyContinue
+        if ($line) { $autotune = $line.Line.Trim() }
+    }
+    if (-not $autotune) { $autotune = 'n/d (nao foi possivel determinar)' }
+    Write-Host "TCP Autotuning: $autotune"
     return
 }
 

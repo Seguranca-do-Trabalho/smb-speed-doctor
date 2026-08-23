@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     SMB Signing Tuner — remove a obrigatoriedade de assinatura SMB do cliente.
     ATENÇÃO: o efeito é GLOBAL, para TODAS as conexões desta máquina.
