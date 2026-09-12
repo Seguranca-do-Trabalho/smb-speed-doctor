@@ -1,6 +1,6 @@
 namespace SmbSpeedDoctor.Core;
 
-/// <summary>Camada onde foi identificado o gargalo dominante.</summary>
+/// <summary>Layer where the dominant bottleneck was identified.</summary>
 public enum Bottleneck
 {
     None,
@@ -17,30 +17,30 @@ public enum Bottleneck
 }
 
 /// <summary>
-/// Procedência do throughput em <see cref="ScanData.ObservedCopyThroughputBps"/>.
+/// Origin of throughput in <see cref="ScanData.ObservedCopyThroughputBps"/>.
 ///
-/// Existe porque "não medi nada" e "medi e deu quase zero" produzem o MESMO
-/// número, e o motor tratava os dois como evidência de gargalo — concluindo
-/// "assinatura SMB crítica" numa rede ociosa e recomendando desligar a
-/// assinatura sem nenhuma medição. Regra: conclusão derivada de throughput
-/// exige <see cref="Measured"/> ou <see cref="Approximated"/>.
+/// Exists because "did not measure" and "measured and got near zero" yield the SAME
+/// number, and the engine previously treated both as bottleneck evidence — concluding
+/// "SMB signing critical" on an idle network and recommending disabling SMB signing
+/// without any actual measurement. Rule: throughput-derived conclusions require
+/// <see cref="Measured"/> or <see cref="Approximated"/>.
 /// </summary>
 public enum MeasurementQuality
 {
-    /// <summary>Sem medição válida. Não sustenta conclusão sobre throughput.</summary>
+    /// <summary>No valid measurement. Cannot support conclusions about throughput.</summary>
     Unavailable,
 
     /// <summary>
-    /// Estimado a partir de tráfego observado na NIC, com volume acima do piso
-    /// de credibilidade. Serve para conclusão, com confiança menor.
+    /// Estimated from observed NIC traffic, above the credibility floor.
+    /// Supports conclusions, with lower confidence.
     /// </summary>
     Approximated,
 
-    /// <summary>Cópia de teste real executada e cronometrada.</summary>
+    /// <summary>Real test copy executed and benchmarked.</summary>
     Measured,
 }
 
-/// <summary>Severidade do gargalo detectado.</summary>
+/// <summary>Severity of the detected bottleneck.</summary>
 public enum Severity
 {
     Ok,
@@ -49,18 +49,18 @@ public enum Severity
 }
 
 /// <summary>
-/// Coleta bruta de todas as camadas medidas durante um scan.
-/// Valores normalizados (bytes/s, ms, 0-1).
+/// Raw collection of all measured layers during a scan.
+/// Normalized values (bytes/s, ms, 0-1).
 /// </summary>
 public sealed record ScanData(
-    // Rede
+    // Network
     double LatencyMs,
-    double RawThroughputBps,     // throughput bruto da rede (ex.: iperf-like)
+    double RawThroughputBps,     // raw network throughput (e.g. iperf-like)
     int MtuBytes,
     double PacketLossRatio,
-    double LinkSpeedBps,         // velocidade do adaptador (negociada)
+    double LinkSpeedBps,         // negotiated adapter speed
     // SMB
-    string NegotiatedDialect,    // ex.: "3.1.1"
+    string NegotiatedDialect,    // e.g. "3.1.1"
     bool SigningEnabled,
     bool EncryptionEnabled,
     bool Multichannel,
@@ -72,25 +72,25 @@ public sealed record ScanData(
     double SourceDiskReadBps,
     double TargetDiskWriteBps,
     bool AvFilterOnSharePath,
-    // Carga observada
+    // Observed workload
     double ObservedCopyThroughputBps,
     double AverageFileBytes,
     int FileCount,
-    // Procedência do throughput acima. Default é o valor SEGURO: quem não
-    // declara explicitamente que mediu não recebe conclusão de throughput.
+    // Origin of the throughput above. Default is the SAFE value: scans that
+    // do not explicitly declare a measurement do not receive throughput conclusions.
     MeasurementQuality ThroughputQuality = MeasurementQuality.Unavailable)
 {
-    /// <summary>Throughput observado sustenta conclusão de gargalo?</summary>
+    /// <summary>Does the observed throughput support bottleneck conclusions?</summary>
     public bool HasUsableThroughput => ThroughputQuality != MeasurementQuality.Unavailable;
 
-    /// <summary>Duração média estimada por arquivo na cópia observada.</summary>
+    /// <summary>Estimated average transfer duration per file in observed copy.</summary>
     public double AverageFileTransferSeconds =>
         FileCount > 0 && ObservedCopyThroughputBps > 0
             ? AverageFileBytes * FileCount / ObservedCopyThroughputBps / Math.Max(1, FileCount)
             : 0;
 }
 
-/// <summary>Ajuste recomendado (ou aplicável) com rollback.</summary>
+/// <summary>Recommended (or applicable) remediation with rollback.</summary>
 public sealed record Remediation(
     string Id,
     string Title,
@@ -98,7 +98,7 @@ public sealed record Remediation(
     string RollbackDescription,
     IReadOnlyList<string> Commands);
 
-/// <summary>Veredicto final do diagnóstico.</summary>
+/// <summary>Final diagnostic verdict.</summary>
 public sealed record DiagnosisResult(
     string OneLineSummary,
     Bottleneck Dominant,
@@ -108,7 +108,7 @@ public sealed record DiagnosisResult(
     Remediation? RecommendedRemediation,
     CopyMethodProfile RecommendedMethod);
 
-/// <summary>Evidência individual de uma camada.</summary>
+/// <summary>Individual evidence from a layer.</summary>
 public sealed record Finding(
     string Layer,
     string Metric,
@@ -117,5 +117,5 @@ public sealed record Finding(
     Severity Severity,
     double WeightContribution);
 
-/// <summary>Método de cópia ótimo para o perfil medido.</summary>
+/// <summary>Optimal copy method for the measured workload profile.</summary>
 public sealed record CopyMethodProfile(string MethodName, string Rationale);

@@ -1,61 +1,61 @@
+// Created by forg3
+// License: MIT
 using Xunit;
 using SmbSpeedDoctor.Core;
 using SmbSpeedDoctor.Cli;
 
 namespace SmbSpeedDoctor.Tests;
 
-// Criado por André Santo (forg3) | junkyardgoodies.app
-
 public class FixScriptBuilderTests
 {
     private static DiagnosisResult ResultWithRemediation(string id, string rollbackDesc, string[] commands)
         => new(
-            OneLineSummary: "teste",
+            OneLineSummary: "test",
             Dominant: Bottleneck.SmbSigning,
             Severity: Severity.Warning,
             ConfidencePct: 70,
             Findings: Array.Empty<Finding>(),
             RecommendedRemediation: new Remediation(
                 Id: id,
-                Title: "Título teste",
-                Description: "Descrição teste",
+                Title: "Test Title",
+                Description: "Test Description",
                 RollbackDescription: rollbackDesc,
                 Commands: commands),
             RecommendedMethod: new CopyMethodProfile("robocopy /J /ZB", "rationale"));
 
     [Fact]
-    public void Script_contem_autoria_licenca_e_aviso()
+    public void Script_contains_author_license_and_warning()
     {
-        var result = ResultWithRemediation("SMB_SIGNING", "reverter assinatura",
+        var result = ResultWithRemediation("SMB_SIGNING", "rollback signing",
             new[] { "Set-SmbClientConfiguration -RequireSecuritySignature $false" });
 
         string s = FixScriptBuilder.Build(result);
 
-        Assert.Contains("André Santo (forg3) | junkyardgoodies.app", s);
+        Assert.Contains("forg3", s);
         Assert.Contains("MIT", s);
         Assert.Contains("#Requires -RunAsAdministrator", s);
-        Assert.Contains("-WhatIf", s);          // simulação obrigatória
-        Assert.Contains("SIMULAÇÃO", s);
+        Assert.Contains("-WhatIf", s);          // simulation required
+        Assert.Contains("SIMULATION", s);
     }
 
     [Fact]
-    public void Script_embute_comandos_de_aplicacao_e_rollback()
+    public void Script_embeds_application_and_rollback_commands()
     {
-        var result = ResultWithRemediation("SMB_SIGNING", "reverter assinatura ao padrão anterior",
-            new[] { "cmd-aplicar-1", "cmd-aplicar-2" });
+        var result = ResultWithRemediation("SMB_SIGNING", "revert signing to previous standard",
+            new[] { "cmd-apply-1", "cmd-apply-2" });
 
         string s = FixScriptBuilder.Build(result);
 
-        Assert.Contains("cmd-aplicar-1", s);
-        Assert.Contains("cmd-aplicar-2", s);
+        Assert.Contains("cmd-apply-1", s);
+        Assert.Contains("cmd-apply-2", s);
         Assert.Contains("ROLLBACK", s);
-        Assert.Contains("reverter assinatura ao padrão anterior", s);
-        // Comando de reversão da família SMB_SIGNING presente comentado
+        Assert.Contains("revert signing to previous standard", s);
+        // SMB_SIGNING family rollback command present commented out
         Assert.Contains("# Set-SmbClientConfiguration -RequireSecuritySignature $true", s);
     }
 
     [Fact]
-    public void Sem_remediacao_o_script_diz_que_nao_ha_acao()
+    public void Without_remediation_script_states_no_action()
     {
         var result = new DiagnosisResult(
             "ok", Bottleneck.None, Severity.Ok, 95,
@@ -64,11 +64,11 @@ public class FixScriptBuilderTests
 
         string s = FixScriptBuilder.Build(result);
 
-        Assert.Contains("Nenhuma remediação recomendada", s);
+        Assert.Contains("No remediation recommended", s);
     }
 
     [Fact]
-    public void Rollback_hints_por_familia()
+    public void Rollback_hints_by_family()
     {
         var enc = ResultWithRemediation("SMB_ENCRYPTION", "r", new[] { "x" });
         Assert.Contains("# Set-SmbClientConfiguration -EncryptData $false", FixScriptBuilder.Build(enc));

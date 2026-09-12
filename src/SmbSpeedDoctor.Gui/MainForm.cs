@@ -33,12 +33,11 @@ public partial class MainForm : Form
 
     private void SetupUi()
     {
-        // Campo de caminho: sem alvo não há cópia de teste e, portanto, não há
-        // medição de throughput — o diagnóstico sai parcial. A janela não tinha
-        // como informar o share, então só sabia produzir scan parcial.
+        // Path input: without target there is no test copy and therefore no
+        // throughput measurement — diagnosis is partial.
         var pathLabel = new Label
         {
-            Text = "Compartilhamento a medir (\\\\servidor\\share ou pasta local):",
+            Text = @"Share to measure (\\server\share or local folder):",
             Font = new System.Drawing.Font("Segoe UI", 9f),
             Location = new System.Drawing.Point(20, 15),
             Size = new System.Drawing.Size(568, 18)
@@ -50,13 +49,13 @@ public partial class MainForm : Form
             Font = new System.Drawing.Font("Segoe UI", 10f),
             Location = new System.Drawing.Point(20, 36),
             Size = new System.Drawing.Size(480, 25),
-            PlaceholderText = @"\\servidor\share   (vazio = scan parcial, sem medir throughput)"
+            PlaceholderText = @"\\server\share   (empty = partial scan, without measuring throughput)"
         };
         this.Controls.Add(_pathBox);
 
         _browseButton = new Button
         {
-            Text = "Procurar…",
+            Text = "Browse…",
             Font = new System.Drawing.Font("Segoe UI", 9f),
             Location = new System.Drawing.Point(508, 35),
             Size = new System.Drawing.Size(80, 27)
@@ -66,7 +65,7 @@ public partial class MainForm : Form
 
         _scanButton = new Button
         {
-            Text = "MEDIR AGORA",
+            Text = "MEASURE NOW",
             Font = new System.Drawing.Font("Segoe UI", 14f, System.Drawing.FontStyle.Bold),
             Size = new System.Drawing.Size(568, 50),
             Location = new System.Drawing.Point(20, 72)
@@ -76,16 +75,14 @@ public partial class MainForm : Form
 
         _statusLabel = new Label
         {
-            Text = "Pronto para diagnosticar",
+            Text = "Ready to diagnose",
             Font = new System.Drawing.Font("Segoe UI", 10f),
             Location = new System.Drawing.Point(20, 132),
             Size = new System.Drawing.Size(568, 42)
         };
         this.Controls.Add(_statusLabel);
 
-        // A MEDIÇÃO em destaque. A janela mostrava só achados e veredito; o
-        // número de velocidade — razão de existir da ferramenta — não aparecia
-        // em lugar nenhum da GUI.
+        // Highlighted MEASUREMENT
         _speedLabel = new Label
         {
             Text = "—",
@@ -125,7 +122,7 @@ public partial class MainForm : Form
     {
         using var dlg = new FolderBrowserDialog
         {
-            Description = "Escolha o compartilhamento ou pasta a medir",
+            Description = "Choose the share or folder to measure",
             ShowNewFolderButton = false
         };
         if (dlg.ShowDialog(this) == DialogResult.OK)
@@ -146,8 +143,8 @@ public partial class MainForm : Form
 
         string sharePath = (_pathBox.Text ?? string.Empty).Trim();
         _statusLabel.Text = sharePath.Length > 0
-            ? string.Format("Medindo com cópia de teste em {0}… (pode levar alguns segundos)", sharePath)
-            : "Coletando dados… sem caminho informado, o throughput NÃO será medido.";
+            ? string.Format("Measuring with test copy at {0}… (may take a few seconds)", sharePath)
+            : "Collecting data… without a path specified, throughput will NOT be measured.";
         _statusLabel.ForeColor = System.Drawing.Color.Blue;
 
         try
@@ -156,24 +153,24 @@ public partial class MainForm : Form
             var data = await System.Threading.Tasks.Task.Run(() => scanner.Collect());
             var result = new DiagnosisEngine().Diagnose(data);
 
-            // --- A medição, em destaque ---
+            // --- The measurement, highlighted ---
             if (data.ThroughputQuality == MeasurementQuality.Unavailable)
             {
-                _speedLabel.Text = "Velocidade não medida";
+                _speedLabel.Text = "Speed not measured";
                 _speedLabel.ForeColor = System.Drawing.Color.DarkOrange;
-                _detailLabel.Text = "Informe um compartilhamento para executar a cópia de teste.";
+                _detailLabel.Text = "Specify a share to run the test copy.";
             }
             else
             {
                 double mbps = data.ObservedCopyThroughputBps / 1_000_000.0;
-                string origem = data.ThroughputQuality == MeasurementQuality.Measured
-                    ? "cópia de teste real"
-                    : "estimativa por tráfego de rede";
+                string origin = data.ThroughputQuality == MeasurementQuality.Measured
+                    ? "real test copy"
+                    : "network traffic estimation";
                 _speedLabel.Text = string.Format("{0:N2} MB/s", mbps);
                 _speedLabel.ForeColor = System.Drawing.Color.FromArgb(0, 90, 156);
                 _detailLabel.Text = string.Format(
-                    "{0}  ·  latência {1:N1} ms  ·  enlace {2:N0} Mb/s  ·  {3:N0} arquivos (média {4})",
-                    origem, data.LatencyMs, data.LinkSpeedBps / 1_000_000.0,
+                    "{0}  ·  latency {1:N1} ms  ·  link {2:N0} Mb/s  ·  {3:N0} files (avg {4})",
+                    origin, data.LatencyMs, data.LinkSpeedBps / 1_000_000.0,
                     data.FileCount, FormatBytes((long)data.AverageFileBytes));
             }
 
@@ -242,7 +239,7 @@ public partial class MainForm : Form
 
                 var remTitle = new Label
                 {
-                    Text = string.Format("Recomenda\u00e7\u00e3o: {0}", rem.Title),
+                    Text = string.Format("Recommendation: {0}", rem.Title),
                     Font = new System.Drawing.Font("Segoe UI", 10f, System.Drawing.FontStyle.Bold),
                     Location = new System.Drawing.Point(10, 5),
                     Size = new System.Drawing.Size(520, 20)
@@ -261,31 +258,30 @@ public partial class MainForm : Form
                 _resultsPanel.Controls.Add(remPanel);
             }
 
-            // Notas da coleta: caminho roteado por VPN, amostragem truncada,
-            // queda para aproximação. Eram calculadas e descartadas.
-            foreach (var nota in scanner.CollectionErrors)
+            // Collection notes
+            foreach (var note in scanner.CollectionErrors)
             {
-                var notaPanel = new Panel
+                var notePanel = new Panel
                 {
                     Size = new System.Drawing.Size(540, 54),
                     BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
                     BackColor = System.Drawing.Color.FromArgb(245, 245, 245),
                     Margin = new Padding(0, 0, 0, 5)
                 };
-                notaPanel.Controls.Add(new Label
+                notePanel.Controls.Add(new Label
                 {
-                    Text = "nota: " + nota,
+                    Text = "note: " + note,
                     Font = new System.Drawing.Font("Segoe UI", 8f),
                     ForeColor = System.Drawing.Color.DimGray,
                     Location = new System.Drawing.Point(8, 5),
                     Size = new System.Drawing.Size(524, 44)
                 });
-                _resultsPanel.Controls.Add(notaPanel);
+                _resultsPanel.Controls.Add(notePanel);
             }
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = string.Format("Erro: {0}", ex.Message);
+            _statusLabel.Text = string.Format("Error: {0}", ex.Message);
             _statusLabel.ForeColor = System.Drawing.Color.Red;
         }
         finally

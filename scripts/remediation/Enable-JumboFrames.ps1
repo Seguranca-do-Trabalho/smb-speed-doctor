@@ -1,19 +1,19 @@
-﻿# Criado por André Santo (forg3) | junkyardgoodies.app
-# Licença: MIT
+﻿# Created by forg3
+# License: MIT
 #
-# Item 7 — Jumbo Frames condicional
-# NUNCA ativa jumbo frames às cegas: primeiro testa se MTU 9000 passa fim-a-fim,
-# só então aplica na interface. MTU inconsistente ao longo do caminho causa
-# fragmentação (pior que 1500) ou perda total de conectividade.
+# Conditional Jumbo Frames
+# NEVER blindly enables jumbo frames: first tests whether MTU 9000 passes end-to-end,
+# only then applies to the interface. Inconsistent MTU along the path causes
+# fragmentation (worse than 1500) or complete loss of connectivity.
 #
-# USO:
-#   .\Enable-JumboFrames.ps1 -Test                          # testa sem aplicar
-#   .\Enable-JumboFrames.ps1 -Apply -Gateway 192.168.0.1    # testa e aplica se passar
-#   .\Enable-JumboFrames.ps1 -Rollback                      # volta para 1500
+# USAGE:
+#   .\Enable-JumboFrames.ps1 -Test                          # test without applying
+#   .\Enable-JumboFrames.ps1 -Apply -Gateway 192.168.0.1    # test and apply if passes
+#   .\Enable-JumboFrames.ps1 -Rollback                      # revert to 1500
 #   .\Enable-JumboFrames.ps1 -Status
 #
-# PRÉ-REQUISITO DE REDE: TODOS os saltos (NIC, switch, servidor) precisam suportar 9000.
-# Se o destino for um share via VPN (Tailscale/WireGuard), jumbo NÃO se aplica.
+# NETWORK PREREQUISITE: ALL hops (NIC, switch, server) must support 9000.
+# If destination is a share over VPN (Tailscale/WireGuard), jumbo does NOT apply.
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -24,7 +24,7 @@ param(
     [string]$Gateway = "",
     [string]$AdapterName = "",
     [int]$Mtu = 9000,
-    [int]$ProbeSize = 8972   # 9000 - 28 bytes de cabeçalho IP+ICMP
+    [int]$ProbeSize = 8972   # 9000 - 28 bytes IP+ICMP header
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,14 +33,14 @@ $BackupFile = Join-Path $BackupDir 'jumbo-backup.json'
 
 function Get-NicTarget {
     if ($AdapterName) { return Get-NetAdapter -Name $AdapterName | Where-Object Status -eq 'Up' }
-    # Interface com rota default = a física de verdade
+    # Interface with default route = actual physical NIC
     $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1).InterfaceAlias
     return Get-NetAdapter -Name $gw
 }
 
 function Test-MtuPath {
     param([string]$Target, [int]$Size)
-    # -f = não fragmentar: se o pacote não passa inteiro, falha honestamente
+    # -f = do not fragment: if packet does not pass intact, fails honestly
     $result = ping -n 3 -f -l $Size $Target 2>&1
     $lost = ($result | Select-String 'Perdidos: 3|Lost = 3|100% loss|100% de perda').Count
     return ($lost -eq 0)
@@ -50,33 +50,33 @@ function Assert-Elevated {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object Security.Principal.WindowsPrincipal($id)
     if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw "Exige elevação de administrador."
+        throw "Administrator elevation required."
     }
 }
 
 if ($Status) {
     Write-Host "=== JUMBO FRAMES — STATUS ===" -ForegroundColor Cyan
     Get-NicTarget | ForEach-Object {
-        $mtuAtual = (Get-NetIPInterface -InterfaceAlias $_.Name -AddressFamily IPv4).NlMtu
-        Write-Host ("{0}: MTU = {1}" -f $_.Name, $mtuAtual)
+        $currentMtu = (Get-NetIPInterface -InterfaceAlias $_.Name -AddressFamily IPv4).NlMtu
+        Write-Host ("{0}: MTU = {1}" -f $_.Name, $currentMtu)
     }
     if (-not $Gateway) { $Gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1).NextHop }
-    Write-Host "`nTestando caminho até $Gateway com pacote $ProbeSize bytes..."
+    Write-Host "`nTesting path to $Gateway with $ProbeSize byte packet..."
     if (Test-MtuPath -Target $Gateway -Size $ProbeSize) {
-        Write-Host "  PASSA: caminho suporta jumbo frames." -ForegroundColor Green
+        Write-Host "  PASS: path supports jumbo frames." -ForegroundColor Green
     } else {
-        Write-Host "  NÃO PASSA: algum salto limita a <9000. Mantenha MTU 1500." -ForegroundColor Yellow
+        Write-Host "  FAIL: some hop limits MTU to <9000. Keep MTU 1500." -ForegroundColor Yellow
     }
     return
 }
 
 if ($Test) {
-    if (-not $Gateway) { throw "Informe -Gateway para testar." }
-    Write-Host "Teste fim-a-fim ($Gateway, pacote $ProbeSize B, DF set):"
+    if (-not $Gateway) { throw "Specify -Gateway to test." }
+    Write-Host "End-to-end test ($Gateway, $ProbeSize B packet, DF set):"
     if (Test-MtuPath -Target $Gateway -Size $ProbeSize) {
-        Write-Host "  APROVADO — pode aplicar jumbo frames." -ForegroundColor Green
+        Write-Host "  PASSED — jumbo frames can be applied." -ForegroundColor Green
     } else {
-        Write-Host "  REPROVADO — não aplique. Verifique switch/servidor." -ForegroundColor Red
+        Write-Host "  FAILED — do not apply. Check switch/server." -ForegroundColor Red
     }
     return
 }
@@ -86,47 +86,47 @@ Assert-Elevated
 if ($Apply) {
     if (-not $Gateway) {
         $Gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric | Select-Object -First 1).NextHop
-        Write-Host "Gateway detectado: $Gateway"
+        Write-Host "Detected gateway: $Gateway"
     }
 
-    Write-Host "Passo 1/2 — teste condicional..."
+    Write-Host "Step 1/2 — conditional test..."
     if (-not (Test-MtuPath -Target $Gateway -Size $ProbeSize)) {
-        Write-Host "ABORTADO: caminho NÃO suporta MTU $Mtu. Nada foi alterado." -ForegroundColor Red
+        Write-Host "ABORTED: path does NOT support MTU $Mtu. Nothing was changed." -ForegroundColor Red
         exit 1
     }
-    Write-Host "  Caminho aprovado." -ForegroundColor Green
+    Write-Host "  Path approved." -ForegroundColor Green
 
     if (-not (Test-Path $BackupDir)) { New-Item -ItemType Directory -Path $BackupDir | Out-Null }
 
     $nic = Get-NicTarget
-    $mtuAntigo = (Get-NetIPInterface -InterfaceAlias $nic.Name -AddressFamily IPv4).NlMtu
+    $previousMtu = (Get-NetIPInterface -InterfaceAlias $nic.Name -AddressFamily IPv4).NlMtu
     @{
-        adapter = $nic.Name; previousMtu = $mtuAntigo
+        adapter = $nic.Name; previousMtu = $previousMtu
         capturedAt = (Get-Date).ToUniversalTime().ToString('o')
     } | ConvertTo-Json | Set-Content $BackupFile -Encoding UTF8
 
     if ($PSCmdlet.ShouldProcess($nic.Name, "MTU -> $Mtu")) {
         Set-NetIPInterface -InterfaceAlias $nic.Name -AddressFamily IPv4 -NlMtuByte $Mtu
-        Write-Host "Passo 2/2 — aplicado: $($nic.Name) MTU $mtuAntigo -> $Mtu" -ForegroundColor Green
+        Write-Host "Step 2/2 — applied: $($nic.Name) MTU $previousMtu -> $Mtu" -ForegroundColor Green
 
-        # Validação pós-aplicação: conectividade básica precisa continuar de pé
+        # Post-application validation: basic connectivity must remain alive
         if (-not (Test-MtuPath -Target $Gateway -Size 1200)) {
-            Write-Host "ALERTA: conectividade degradada após mudança! Revertendo..." -ForegroundColor Red
-            Set-NetIPInterface -InterfaceAlias $nic.Name -AddressFamily IPv4 -NlMtuByte $mtuAntigo
-            Write-Host "Revertido para $mtuAntigo." -ForegroundColor Yellow
+            Write-Host "ALERT: connectivity degraded after change! Rolling back..." -ForegroundColor Red
+            Set-NetIPInterface -InterfaceAlias $nic.Name -AddressFamily IPv4 -NlMtuByte $previousMtu
+            Write-Host "Rolled back to $previousMtu." -ForegroundColor Yellow
             exit 1
         }
-        Write-Host "`nConectividade OK. Ganho esperado em cópias sequenciais grandes (~5-15%)."
-        Write-Host "Valide: smbdoctor-cli scan --compare <baseline.json>"
+        Write-Host "`nConnectivity OK. Expected gain on large sequential copies (~5-15%)."
+        Write-Host "Validate: smbdoctor-cli scan --compare <baseline.json>"
     }
     return
 }
 
 if ($Rollback) {
-    if (-not (Test-Path $BackupFile)) { throw "Sem backup em $BackupFile — nada para reverter." }
+    if (-not (Test-Path $BackupFile)) { throw "No backup found in $BackupFile — nothing to revert." }
     $b = Get-Content $BackupFile -Raw | ConvertFrom-Json
     Assert-Elevated
     Set-NetIPInterface -InterfaceAlias $b.adapter -AddressFamily IPv4 -NlMtuByte $b.previousMtu
     Remove-Item $BackupFile -Force
-    Write-Host "Revertido: $($b.adapter) -> MTU $($b.previousMtu)" -ForegroundColor Green
+    Write-Host "Reverted: $($b.adapter) -> MTU $($b.previousMtu)" -ForegroundColor Green
 }

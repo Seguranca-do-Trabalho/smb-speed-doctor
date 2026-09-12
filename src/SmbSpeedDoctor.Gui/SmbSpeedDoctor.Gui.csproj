@@ -5,12 +5,16 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <!-- Permite cross-build WinForms a partir do Linux (SDK resolve os packs Windows) -->
+    <!-- Allows WinForms cross-build from Linux (SDK resolves Windows targeting packs) -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <RootNamespace>SmbSpeedDoctor.Gui</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Authors>forg3</Authors>
+    <Company>forg3</Company>
+    <Description>SMB Speed Doctor - GUI application for SMB bottleneck diagnosis</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

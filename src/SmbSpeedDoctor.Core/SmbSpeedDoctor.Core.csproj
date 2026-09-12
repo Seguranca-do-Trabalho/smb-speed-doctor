@@ -1,10 +1,10 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Domínio PURO: modelo, motor de correlação e baseline. Sem WMI, sem
-    P/Invoke, sem API de plataforma — compila e roda em qualquer SO.
-    A coleta específica de Windows vive em SmbSpeedDoctor.Core.Windows.
+    PURE Domain: model, correlation engine, and baseline. No WMI, no
+    P/Invoke, no platform APIs — builds and runs on any OS.
+    Windows-specific collection lives in SmbSpeedDoctor.Core.Windows.
   -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -12,6 +12,10 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RootNamespace>SmbSpeedDoctor.Core</RootNamespace>
+    <Authors>forg3</Authors>
+    <Company>forg3</Company>
+    <Description>SMB Speed Doctor - Core pure domain library</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

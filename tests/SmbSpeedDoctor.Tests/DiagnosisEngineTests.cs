@@ -1,19 +1,19 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
+// Created by forg3
+// License: MIT
 using Xunit;
 using SmbSpeedDoctor.Core;
 
 namespace SmbSpeedDoctor.Tests;
 
 /// <summary>
-/// Testes do motor de correlação. Cada cenário reproduz um perfil real de
-/// campo: assinatura SMB no 24H2, disco lento, MTU fragmentado, carga de
-/// muitos arquivos pequenos etc.
+/// Tests for correlation engine. Each scenario reproduces a real field profile:
+/// SMB signing on 24H2, slow disk, fragmented MTU, many small files workload, etc.
 /// </summary>
 public class DiagnosisEngineTests
 {
     private static ScanData Baseline => new(
         LatencyMs: 0.4,
-        RawThroughputBps: 2_400_000_000,   // 2,5 GbE ~ saturado
+        RawThroughputBps: 2_400_000_000,   // 2.5 GbE ~ saturated
         MtuBytes: 1500,
         PacketLossRatio: 0.0,
         LinkSpeedBps: 2_500_000_000,
@@ -28,42 +28,42 @@ public class DiagnosisEngineTests
         SourceDiskReadBps: 2_000_000_000,
         TargetDiskWriteBps: 2_000_000_000,
         AvFilterOnSharePath: false,
-        ObservedCopyThroughputBps: 38_000_000, // ~38 MB/s (BYTES/s) — cópia SMB colapsa no 24H2 com signing
+        ObservedCopyThroughputBps: 38_000_000, // ~38 MB/s (BYTES/s) — SMB copy collapses on 24H2 with signing
         AverageFileBytes: 512L * 1024 * 1024,
         FileCount: 10,
-        // Estes cenários descrevem cópias REALMENTE medidas; sem isso o motor
-        // (corretamente) se recusa a concluir qualquer coisa sobre throughput.
+        // These scenarios describe ACTUALLY measured copies; without this the engine
+        // (correctly) refuses to conclude anything about throughput.
         ThroughputQuality: MeasurementQuality.Measured);
 
     [Fact]
-    public void Perfil_saudavel_nao_aponta_gargalo()
+    public void Healthy_profile_indicates_no_bottleneck()
     {
         var healthy = Baseline with { ObservedCopyThroughputBps = 290_000_000 };
         var result = new DiagnosisEngine().Diagnose(healthy);
 
         Assert.Equal(Bottleneck.None, result.Dominant);
         Assert.Equal(Severity.Ok, result.Severity);
-        Assert.Contains("sem gargalo dominante", result.OneLineSummary);
+        Assert.Contains("no dominant bottleneck", result.OneLineSummary);
         Assert.Equal(0, ExitCodeMapper.For(result));
     }
 
     [Fact]
-    public void Assinatura_SMB_com_rede_saturada_e_gargalo_dominante()
+    public void Smb_signing_with_saturated_network_is_dominant_bottleneck()
     {
-        // Cenário 24H2: rede entrega ~2 Gb/s mas a cópia SMB cai para 38 MB/s.
+        // 24H2 scenario: network delivers ~2 Gb/s but SMB copy drops to 38 MB/s.
         var result = new DiagnosisEngine().Diagnose(Baseline);
 
         Assert.Equal(Bottleneck.SmbSigning, result.Dominant);
         Assert.Equal(Severity.Critical, result.Severity);
-        Assert.Equal(2, ExitCodeMapper.For(result)); // exit code de gargalo p/ RMM
-        Assert.Contains("assinatura", result.OneLineSummary.ToLowerInvariant());
+        Assert.Equal(2, ExitCodeMapper.For(result)); // exit code for bottleneck in RMM
+        Assert.Contains("signing", result.OneLineSummary.ToLowerInvariant());
         Assert.NotNull(result.RecommendedRemediation);
-        // Toda remediação carrega rollback explícito (decisão do produto).
+        // Every remediation carries an explicit rollback (product requirement).
         Assert.False(string.IsNullOrWhiteSpace(result.RecommendedRemediation!.RollbackDescription));
     }
 
     [Fact]
-    public void Criptografia_SMB_suplanta_assinatura_quando_ativa()
+    public void Smb_encryption_supersedes_signing_when_active()
     {
         var data = Baseline with { EncryptionEnabled = true };
         var result = new DiagnosisEngine().Diagnose(data);
@@ -72,7 +72,7 @@ public class DiagnosisEngineTests
     }
 
     [Fact]
-    public void Disco_destino_lento_supera_causa_SMB()
+    public void Slow_target_disk_outweighs_smb_cause()
     {
         var data = Baseline with
         {
@@ -86,7 +86,7 @@ public class DiagnosisEngineTests
     }
 
     [Fact]
-    public void Muitos_arquivos_pequenos_explica_throughput_baixo()
+    public void Many_small_files_explains_low_throughput()
     {
         var data = Baseline with
         {
@@ -97,11 +97,11 @@ public class DiagnosisEngineTests
         var result = new DiagnosisEngine().Diagnose(data);
 
         Assert.Equal(Bottleneck.Workload, result.Dominant);
-        Assert.Contains("arquivos pequenos", result.OneLineSummary);
+        Assert.Contains("small files", result.OneLineSummary);
     }
 
     [Fact]
-    public void Perda_de_pacote_e_reportada_como_gargalo_de_rede()
+    public void Packet_loss_is_reported_as_network_bottleneck()
     {
         var data = Baseline with { PacketLossRatio = 0.03, ObservedCopyThroughputBps = 120_000_000 };
         var result = new DiagnosisEngine().Diagnose(data);
@@ -110,7 +110,7 @@ public class DiagnosisEngineTests
     }
 
     [Fact]
-    public void Dialeto_smb1_e_bloqueante()
+    public void Smb1_dialect_is_blocking()
     {
         var data = Baseline with { NegotiatedDialect = "1.0" };
         var result = new DiagnosisEngine().Diagnose(data);
@@ -120,14 +120,14 @@ public class DiagnosisEngineTests
     }
 
     [Fact]
-    public void Metodo_de_copia_para_arquivos_grandes_e_nao_buffered()
+    public void Copy_method_for_large_files_is_unbuffered()
     {
         var result = new DiagnosisEngine().Diagnose(Baseline);
         Assert.Contains("/J", result.RecommendedMethod.Rationale);
     }
 
     [Fact]
-    public void Metodo_de_copia_para_muitos_arquivos_pequenos_e_paralelo()
+    public void Copy_method_for_many_small_files_is_parallel()
     {
         var data = Baseline with
         {
@@ -136,26 +136,25 @@ public class DiagnosisEngineTests
             ObservedCopyThroughputBps = 40_000_000,
         };
         var result = new DiagnosisEngine().Diagnose(data);
-        Assert.Equal("robocopy paralelo (/MT)", result.RecommendedMethod.MethodName);
+        Assert.Equal("parallel robocopy (/MT)", result.RecommendedMethod.MethodName);
     }
 
     // ---------------------------------------------------------------------
-    // Regressão de campo: `scan` SEM --path não executa cópia de teste. O
-    // throughput vinha de NIC ociosa (~886 B/s) e o motor concluía "assinatura
-    // SMB crítica" (exit 2), recomendando DESLIGAR a assinatura — um downgrade
-    // de segurança apoiado em nenhuma medição. Reproduzido na máquina real.
+    // Field regression: `scan` WITHOUT --path does not execute test copy.
+    // Throughput came from idle NIC (~886 B/s) and engine concluded "critical SMB signing"
+    // (exit 2), recommending DISABLING signing — a security downgrade backed by no measurement.
     // ---------------------------------------------------------------------
 
-    private static ScanData SemMedicao => Baseline with
+    private static ScanData NoMeasurement => Baseline with
     {
-        ObservedCopyThroughputBps = 886,   // valor real observado no bug
+        ObservedCopyThroughputBps = 886,   // actual value observed in bug
         ThroughputQuality = MeasurementQuality.Unavailable,
     };
 
     [Fact]
-    public void Sem_medicao_real_nao_acusa_assinatura_como_gargalo()
+    public void Without_real_measurement_does_not_accuse_signing_as_bottleneck()
     {
-        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+        var result = new DiagnosisEngine().Diagnose(NoMeasurement);
 
         Assert.NotEqual(Bottleneck.SmbSigning, result.Dominant);
         Assert.NotEqual(Severity.Critical, result.Severity);
@@ -163,55 +162,55 @@ public class DiagnosisEngineTests
     }
 
     [Fact]
-    public void Sem_medicao_real_nao_recomenda_desabilitar_assinatura()
+    public void Without_real_measurement_does_not_recommend_disabling_signing()
     {
-        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+        var result = new DiagnosisEngine().Diagnose(NoMeasurement);
 
-        // Nenhuma recomendação de downgrade de segurança sem evidência.
+        // No security downgrade recommendation without evidence.
         Assert.Null(result.RecommendedRemediation);
     }
 
     [Fact]
-    public void Sem_medicao_real_declara_a_limitacao_e_baixa_a_confianca()
+    public void Without_real_measurement_declares_limitation_and_lowers_confidence()
     {
-        var result = new DiagnosisEngine().Diagnose(SemMedicao);
+        var result = new DiagnosisEngine().Diagnose(NoMeasurement);
 
         Assert.Contains(result.Findings, f => f.Metric == "ThroughputQuality");
-        // Ausência de evidência não é evidência de ausência: não pode alegar 95%.
+        // Absence of evidence is not evidence of absence: cannot claim 95%.
         Assert.True(result.ConfidencePct < 95,
-            $"confiança deveria cair sem medição, veio {result.ConfidencePct}");
+            $"confidence should drop without measurement, got {result.ConfidencePct}");
     }
 
     [Fact]
-    public void Sem_medicao_real_ainda_reporta_achados_independentes_de_throughput()
+    public void Without_real_measurement_still_reports_findings_independent_of_throughput()
     {
-        // Perda de pacote é medida direta — não depende de cópia. O scan rápido
-        // continua útil; só não conclui o que depende de throughput.
-        var data = SemMedicao with { PacketLossRatio = 0.03 };
+        // Packet loss is directly measured — does not depend on copy. Quick scan
+        // remains useful; it just does not conclude what requires throughput.
+        var data = NoMeasurement with { PacketLossRatio = 0.03 };
         var result = new DiagnosisEngine().Diagnose(data);
 
         Assert.Equal(Bottleneck.Network, result.Dominant);
     }
 
     [Fact]
-    public void Dialeto_desconhecido_nao_e_interpretado_como_moderno()
+    public void Unknown_dialect_is_not_interpreted_as_modern()
     {
-        // Fail-open: dado ausente virava parecer positivo ("dialeto moderno").
-        var data = Baseline with { NegotiatedDialect = "desconhecido" };
+        // Fail-open: missing data became positive verdict ("modern dialect").
+        var data = Baseline with { NegotiatedDialect = "unknown" };
         var result = new DiagnosisEngine().Diagnose(data);
 
         var f = Assert.Single(result.Findings, x => x.Metric == "NegotiatedDialect");
-        Assert.DoesNotContain("moderno", f.Interpretation);
+        Assert.DoesNotContain("modern", f.Interpretation);
     }
 
     [Fact]
-    public void Multichannel_desabilitado_nao_e_contabilizado_como_assinatura()
+    public void Disabled_multichannel_is_not_counted_as_signing()
     {
-        // O achado de Multichannel somava no score de SmbSigning: o relatório
-        // listava um problema e culpava outro.
+        // Multichannel finding previously added to SmbSigning score: report
+        // listed one problem and blamed another.
         var data = Baseline with
         {
-            SigningEnabled = false,        // isola o efeito do multichannel
+            SigningEnabled = false,        // isolates multichannel effect
             Multichannel = false,
             ActiveChannels = 1,
             ObservedCopyThroughputBps = 38_000_000,

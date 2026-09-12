@@ -1,54 +1,48 @@
 ﻿<#
 .SYNOPSIS
-    SMB Signing Tuner — remove a obrigatoriedade de assinatura SMB do cliente.
-    ATENÇÃO: o efeito é GLOBAL, para TODAS as conexões desta máquina.
+    SMB Signing Tuner — removes client SMB signing requirement.
+    WARNING: effect is GLOBAL for ALL connections from this machine.
 
 .DESCRIPTION
-    Windows 11 24H2 tornou RequireSecuritySignature obrigatório por padrão,
-    causando queda típica de ~110 MB/s para ~38 MB/s em redes internas
-    confiáveis. Este script:
-      - Remove a obrigatoriedade (RequireSecuritySignature $false)
-      - Mantém a assinatura NEGOCIÁVEL (EnableSecuritySignature $true), de modo
-        que o servidor ainda pode exigi-la
-      - Salva o estado anterior para rollback
+    Windows 11 24H2 made RequireSecuritySignature mandatory by default,
+    typically causing drops from ~110 MB/s to ~38 MB/s in trusted internal
+    networks. This script:
+      - Removes the requirement (RequireSecuritySignature $false)
+      - Keeps signing NEGOTIABLE (EnableSecuritySignature $true), so the server can still require it
+      - Saves previous state for rollback
 
-    ESCOPO — leia antes de usar:
-    Set-SmbClientConfiguration é uma configuração DE MÁQUINA. O Windows não
-    oferece política de assinatura SMB por sub-rede no cliente. Portanto NÃO há
-    como limitar este ajuste a uma rede confiável: ao aplicar, a exigência de
-    assinatura cai para toda conexão SMB desta máquina — Wi-Fi público, VPN,
-    DMZ, hotel, qualquer uma.
+    SCOPE — read before using:
+    Set-SmbClientConfiguration is a MACHINE-WIDE configuration. Windows does
+    not offer per-subnet client SMB signing policies. Therefore there is NO
+    way to limit this setting to a trusted network: upon applying, the signing
+    requirement drops for all SMB connections from this machine — public Wi-Fi,
+    VPN, DMZ, hotel, any connection.
 
-    Versões anteriores deste script aceitavam um parâmetro -Subnet e diziam
-    aplicar "tuning escopado". Isso era FALSO: o valor nunca era usado em nada
-    além de uma mensagem na tela, enquanto o efeito real sempre foi global. O
-    parâmetro foi removido para não induzir a uma falsa sensação de contenção.
+    If differentiated posture across networks is required, containment must come
+    from network topology (dedicated NIC/VLAN for trusted traffic) or administrative
+    policies — not from this cmdlet.
 
-    Se você precisa de postura diferenciada por rede, a contenção tem de vir da
-    topologia (interface/VLAN dedicada ao tráfego confiável) ou de política
-    aplicada por escopo administrativo — não deste cmdlet.
+    HOW TO VALIDATE:
+      1) Before: smbdoctor-cli.exe scan --json --path \\server\share > before.json
+      2) Run: .\Set-SmbSigningOptimized.ps1 -Apply -AcceptGlobalSecurityImpact
+      3) After: smbdoctor-cli.exe scan --json --path \\server\share > after.json
+      4) Compare SigningEnabled and throughput between before/after.
 
-    COMO VALIDAR:
-      1) Antes: smbdoctor-cli.exe scan --json --path \\servidor\share > before.json
-      2) Execute: .\Set-SmbSigningOptimized.ps1 -Apply -AcceptGlobalSecurityImpact
-      3) Depois: smbdoctor-cli.exe scan --json --path \\servidor\share > after.json
-      4) Compare SigningEnabled e throughput entre before/after.
-
-    Observação: meça com --path. Sem cópia real não há medição de throughput e
-    não há como afirmar que a assinatura é o gargalo.
+    Note: measure with --path. Without a real copy there is no throughput measurement
+    and no basis to state that signing is the bottleneck.
 
 .AUTHOR
-    Criado por André Santo (forg3) | junkyardgoodies.app
+    Created by forg3
 
 .LICENSE
-    MIT License — veja LICENSE no repositório.
+    MIT License — see LICENSE in repository.
 
 .RISK
-    A assinatura SMB protege contra adulteração e ataques de relay/MITM. Sem a
-    obrigatoriedade, um atacante em posição de rede pode tentar rebaixar a
-    sessão. Como o efeito aqui é global e não por sub-rede, só aplique em
-    máquinas que não saem de um segmento controlado. Em notebook que circula
-    por redes de terceiros, NÃO aplique.
+    SMB signing protects against tampering and relay/MITM attacks. Without the
+    requirement, a network-positioned attacker may attempt to downgrade the
+    session. Because the effect is machine-wide, only apply on machines that do
+    not leave a controlled network segment. On laptops traveling through untrusted
+    networks, DO NOT apply.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -62,9 +56,8 @@ param(
     [Parameter(Mandatory = $false)]
     [switch]$Status,
 
-    # Reconhecimento explícito de que o efeito é global (todas as conexões SMB
-    # desta máquina). Exigido em -Apply para que a decisão seja deliberada e
-    # fique registrada na linha de comando, no histórico e nos logs do RMM.
+    # Explicit acknowledgment that effect is global (all SMB connections from this machine).
+    # Required with -Apply to ensure conscious decision recorded in command history and RMM logs.
     [Parameter(Mandatory = $false)]
     [switch]$AcceptGlobalSecurityImpact
 )
@@ -81,110 +74,104 @@ function Test-Admin {
 }
 
 if (-not (Test-Admin)) {
-    Write-Error "Este script requer elevação (Execute como Administrador)."
+    Write-Error "This script requires elevation (Run as Administrator)."
     exit 1
 }
 
 # ── Status ────────────────────────────────────────────────────────────────────
 if ($Status) {
-    Write-Host "=== Estado atual do SMB Signing ===" -ForegroundColor Cyan
+    Write-Host "=== Current SMB Signing Status ===" -ForegroundColor Cyan
     $config = Get-SmbClientConfiguration
     Write-Host "RequireSecuritySignature : $($config.RequireSecuritySignature)"
     Write-Host "EnableSecuritySignature  : $($config.EnableSecuritySignature)"
     Write-Host ""
-    Write-Host "Backup disponível: $(if (Test-Path $BackupFile) { 'SIM' } else { 'NÃO' })"
+    Write-Host "Backup available: $(if (Test-Path $BackupFile) { 'YES' } else { 'NO' })"
     if (Test-Path $BackupFile) {
-        Write-Host "Conteúdo do backup:"
+        Write-Host "Backup contents:"
         Get-Content $BackupFile | ForEach-Object { Write-Host "  $_" }
     }
     exit 0
 }
 
-# ── Helper: Capturar estado atual ─────────────────────────────────────────────
+# ── Helper: Capture current state ─────────────────────────────────────────────
 function Save-State {
     if (-not (Test-Path $BackupDir)) {
         New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
     }
     $state = Get-SmbClientConfiguration | Select-Object RequireSecuritySignature, EnableSecuritySignature
     $state | ConvertTo-Json | Out-File -FilePath $BackupFile -Encoding UTF8
-    Write-Host "Estado salvo em: $BackupFile" -ForegroundColor Green
+    Write-Host "State saved to: $BackupFile" -ForegroundColor Green
 }
 
-# ── Helper: Restaurar estado ──────────────────────────────────────────────────
+# ── Helper: Restore state ─────────────────────────────────────────────────────
 function Restore-State {
     if (-not (Test-Path $BackupFile)) {
-        Write-Error "Nenhum backup encontrado em $BackupFile"
+        Write-Error "No backup found in $BackupFile"
         exit 1
     }
     $state = Get-Content $BackupFile | ConvertFrom-Json
-    Write-Host "Restaurando estado: $($state | ConvertTo-Json)" -ForegroundColor Yellow
-    # -Confirm:$false: Set-SmbClientConfiguration pede confirmacao interativa por
-    # padrao. Sem isto o script TRAVA indefinidamente quando rodado por RMM ou
-    # em qualquer sessao nao-interativa — pior ainda no rollback, que e
-    # justamente o caminho de emergencia.
+    Write-Host "Restoring state: $($state | ConvertTo-Json)" -ForegroundColor Yellow
+    # -Confirm:$false prevents interactive prompt hanging non-interactive sessions
     Set-SmbClientConfiguration -RequireSecuritySignature $state.RequireSecuritySignature -Confirm:$false
     Set-SmbClientConfiguration -EnableSecuritySignature $state.EnableSecuritySignature -Confirm:$false
-    Write-Host "Estado restaurado com sucesso." -ForegroundColor Green
+    Write-Host "State restored successfully." -ForegroundColor Green
 }
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
 if ($Apply) {
     if (-not $AcceptGlobalSecurityImpact) {
         Write-Error @'
-Recusado: este ajuste é GLOBAL, não por sub-rede.
+Rejected: this configuration change is GLOBAL, not per-subnet.
 
-Set-SmbClientConfiguration vale para a máquina inteira. Ao aplicar, a exigência
-de assinatura SMB cai para TODAS as conexões desta máquina, inclusive em redes
-não confiáveis (Wi-Fi público, VPN, DMZ).
+Set-SmbClientConfiguration applies machine-wide. When applied, the SMB signing
+requirement drops for ALL connections from this machine, including untrusted
+networks (public Wi-Fi, VPN, DMZ).
 
-Se isso é aceitável para esta máquina, repita com -AcceptGlobalSecurityImpact:
+If this is acceptable for this machine, repeat with -AcceptGlobalSecurityImpact:
   .\Set-SmbSigningOptimized.ps1 -Apply -AcceptGlobalSecurityImpact
 '@
         exit 1
     }
 
-    Write-Host "=== Removendo obrigatoriedade de assinatura SMB (efeito GLOBAL) ===" -ForegroundColor Cyan
-    Write-Host "ATENÇÃO: vale para todas as conexões SMB desta máquina." -ForegroundColor Yellow
-    Write-Host "Justificativa: Windows 11 24H2 exige signing por padrão, o que em LAN confiável"
-    Write-Host "  causa overhead significativo (~65% de perda de throughput)."
+    Write-Host "=== Removing SMB signing requirement (GLOBAL effect) ===" -ForegroundColor Cyan
+    Write-Host "WARNING: applies to all SMB connections from this machine." -ForegroundColor Yellow
+    Write-Host "Rationale: Windows 11 24H2 requires signing by default, which on trusted LAN"
+    Write-Host "  causes significant overhead (~65% throughput loss)."
     Write-Host ""
 
-    # Backup antes de alterar
+    # Backup before altering
     Save-State
 
-    # RequireSecuritySignature $false → remove a obrigatoriedade (efeito global)
-    # EnableSecuritySignature $true   → mantém negociável (servidor ainda pode exigir)
-    if ($PSCmdlet.ShouldProcess("SMB Client Configuration (máquina inteira)",
-                                "Remover obrigatoriedade de assinatura SMB")) {
-        # -Confirm:$false pelo mesmo motivo do rollback: sem isto o cmdlet abre
-        # prompt e o script trava em execucao nao-interativa. A confirmacao
-        # deliberada aqui e o -AcceptGlobalSecurityImpact, verificado acima.
+    # RequireSecuritySignature $false -> removes requirement (global effect)
+    # EnableSecuritySignature $true   -> keeps negotiable (server can still require)
+    if ($PSCmdlet.ShouldProcess("SMB Client Configuration (entire machine)",
+                                "Remove SMB signing requirement")) {
         Set-SmbClientConfiguration -RequireSecuritySignature $false -Confirm:$false
         Set-SmbClientConfiguration -EnableSecuritySignature $true -Confirm:$false
-        Write-Host "Configuração aplicada:" -ForegroundColor Green
-        Write-Host "  RequireSecuritySignature = false (não obrigatório) — TODAS as conexões"
-        Write-Host "  EnableSecuritySignature  = true  (negociável)"
+        Write-Host "Configuration applied:" -ForegroundColor Green
+        Write-Host "  RequireSecuritySignature = false (not required) — ALL connections"
+        Write-Host "  EnableSecuritySignature  = true  (negotiable)"
     }
 
     Write-Host ""
-    Write-Host "=== Validação recomendada ===" -ForegroundColor Yellow
+    Write-Host "=== Recommended validation ===" -ForegroundColor Yellow
     Write-Host "Execute: smbdoctor-cli.exe scan --json"
-    Write-Host "Compare com backup anterior (salve antes/depois para diff)."
+    Write-Host "Compare with previous backup (save before/after for diff)."
     exit 0
 }
 
 # ── Rollback ──────────────────────────────────────────────────────────────────
 if ($Rollback) {
-    Write-Host "=== Rollback de SMB Signing ===" -ForegroundColor Cyan
+    Write-Host "=== Rolling back SMB Signing ===" -ForegroundColor Cyan
     Restore-State
     exit 0
 }
 
-# ── Sem parâmetro válido ──────────────────────────────────────────────────────
-Write-Host "Uso: Set-SmbSigningOptimized.ps1 [-Apply -AcceptGlobalSecurityImpact | -Rollback | -Status]" -ForegroundColor Yellow
-Write-Host "  -Apply                        Remove a obrigatoriedade de assinatura (backup antes)"
-Write-Host "  -AcceptGlobalSecurityImpact   Obrigatório com -Apply: confirma ciência de que o"
-Write-Host "                                efeito é GLOBAL (todas as conexões SMB da máquina)"
-Write-Host "  -Rollback                     Restaura estado anterior a partir do backup"
-Write-Host "  -Status                       Exibe configuração atual e estado do backup"
+# ── Without valid parameter ───────────────────────────────────────────────────
+Write-Host "Usage: Set-SmbSigningOptimized.ps1 [-Apply -AcceptGlobalSecurityImpact | -Rollback | -Status]" -ForegroundColor Yellow
+Write-Host "  -Apply                        Removes signing requirement (back up first)"
+Write-Host "  -AcceptGlobalSecurityImpact   Required with -Apply: acknowledges that the"
+Write-Host "                                effect is GLOBAL (all SMB connections on machine)"
+Write-Host "  -Rollback                     Restores previous state from backup"
+Write-Host "  -Status                       Displays current configuration and backup status"
 exit 0

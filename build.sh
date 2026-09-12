@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# SMB Speed Doctor — build e publicação win-x64
-# Uso: ./build.sh          → Debug + testes
-#      ./build.sh publish  → Release win-x64 em dist/
+# SMB Speed Doctor — build and win-x64 publication
+# Usage: ./build.sh          → Debug + tests
+#        ./build.sh publish  → Release win-x64 in dist/
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,20 +14,18 @@ dotnet restore
 echo "== Build =="
 dotnet build --no-restore -c Debug
 
-echo "== Testes =="
+echo "== Tests =="
 dotnet test --no-build -c Debug
 
 if [[ "${1:-}" == "publish" ]]; then
-    # LIMPEZA OBRIGATORIA antes de publicar.
+    # MANDATORY CLEANUP before publishing.
     #
-    # O dotnet publish NAO remove arquivos que sobraram de um publish anterior.
-    # Um publish self-contained antigo deixa hostfxr.dll/hostpolicy.dll/coreclr.dll
-    # na pasta; ao publicar framework-dependent por cima, o .exe encontra esse
-    # host LOCAL antigo em vez do host do sistema, nao consegue localizar o
-    # runtime compartilhado e falha com "You must install or update .NET to run
-    # this application" — numa maquina que TEM o .NET instalado.
-    # Ja aconteceu em campo. Nao remova esta limpeza.
-    echo "== Limpando dist/ =="
+    # dotnet publish does NOT remove files left over from previous publishes.
+    # An older self-contained publish leaves hostfxr.dll/hostpolicy.dll/coreclr.dll
+    # in the directory; publishing framework-dependent over it causes the .exe to find
+    # that local host instead of the system host, failing with
+    # "You must install or update .NET to run this application" — even on machines with .NET installed.
+    echo "== Cleaning dist/ =="
     rm -rf dist
     mkdir -p dist
 
@@ -37,21 +35,21 @@ if [[ "${1:-}" == "publish" ]]; then
     dotnet publish src/SmbSpeedDoctor.Gui -c Release -r win-x64 --self-contained false \
         -p:EnableWindowsTargeting=true -o dist/Gui
 
-    echo "== Artefatos =="
-    echo "-- CLI em dist/ --"
+    echo "== Artifacts =="
+    echo "-- CLI in dist/ --"
     ls -la dist/*.exe 2>/dev/null || true
-    echo "-- GUI em dist/Gui/ --"
+    echo "-- GUI in dist/Gui/ --"
     ls -la dist/Gui/*.exe 2>/dev/null || true
     echo
-    echo "Publish e FRAMEWORK-DEPENDENT: a maquina alvo precisa do"
-    echo ".NET 8 Desktop Runtime (x64). Para endpoints sem .NET, gere"
-    echo "self-contained com: ./build.sh publish-selfcontained"
+    echo "Publish is FRAMEWORK-DEPENDENT: target machine requires"
+    echo ".NET 8 Desktop Runtime (x64). For endpoints without .NET, generate"
+    echo "self-contained build using: ./build.sh publish-selfcontained"
 fi
 
 if [[ "${1:-}" == "publish-selfcontained" ]]; then
-    # Self-contained: ~150 MB por app, mas nao exige .NET instalado no alvo.
-    # Util para deploy em endpoints via RMM.
-    echo "== Limpando dist-selfcontained/ =="
+    # Self-contained: ~150 MB per app, but does not require .NET installed on target.
+    # Useful for endpoint deployments via RMM.
+    echo "== Cleaning dist-selfcontained/ =="
     rm -rf dist-selfcontained
     mkdir -p dist-selfcontained
 
@@ -61,8 +59,8 @@ if [[ "${1:-}" == "publish-selfcontained" ]]; then
     dotnet publish src/SmbSpeedDoctor.Gui -c Release -r win-x64 --self-contained true \
         -p:EnableWindowsTargeting=true -o dist-selfcontained/Gui
 
-    echo "== Artefatos em dist-selfcontained/ =="
+    echo "== Artifacts in dist-selfcontained/ =="
     ls -la dist-selfcontained/Cli/*.exe dist-selfcontained/Gui/*.exe 2>/dev/null || true
 fi
 
-echo "== Concluído =="
+echo "== Done =="

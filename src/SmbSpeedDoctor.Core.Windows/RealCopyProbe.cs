@@ -1,4 +1,4 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
+// Author: forg3 | junkyardgoodies.app
 using System.Buffers;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
@@ -7,18 +7,18 @@ using SmbSpeedDoctor.Core;
 namespace SmbSpeedDoctor.Core.Windows;
 
 /// <summary>
-/// Decisão operacional do scanner sobre como obter ObservedCopyThroughputBps.
+/// Operational decision of the scanner on how to obtain ObservedCopyThroughputBps.
 /// </summary>
 public enum CopyProbeDecision
 {
-    /// <summary>A cópia real está viável e deve ser executada.</summary>
+    /// <summary>Real copy is viable and should be executed.</summary>
     RunRealCopy,
-    /// <summary>Desativada por flag ou caminho não gravável; usa aproximação de NIC.</summary>
+    /// <summary>Disabled by flag or unwriteable path; uses NIC traffic approximation.</summary>
     FallbackToApproximation,
 }
 
 /// <summary>
-/// Resultado de uma tentativa de cópia de teste (probe).
+/// Result of a test copy attempt (probe).
 /// </summary>
 public sealed class CopyProbeResult
 {
@@ -45,26 +45,25 @@ public sealed class CopyProbeResult
 }
 
 /// <summary>
-/// Cria, escreve e lê um arquivo temporário de tamanho fixo no destino
-/// para medir a taxa real de escrita e leitura (MB/s). O arquivo é
-/// eliminado no finally, mesmo em caso de falha.
+/// Creates, writes, and reads a fixed-size temporary file on the target
+/// to measure real write and read rate (MB/s). The file is deleted
+/// in finally, even on failure.
 /// </summary>
 public sealed class RealCopyProbe
 {
-    /// <summary>Tamanho total do probe — 256 MB. Alterado nos testes p/ reduzir tempo.</summary>
+    /// <summary>Total probe size — 256 MB. Overridden in tests to reduce runtime.</summary>
     public long TotalBytes { get; init; } = 256L * 1024 * 1024;
 
-    private const int BufferSize = 1024 * 1024;   // 1 MB por chunk
+    private const int BufferSize = 1024 * 1024;   // 1 MB per chunk
     private const string ProbeFileName = "smb-speed-doctor-copy-probe.bin";
-    private const int Seed = unchecked((int)0xDEAD_BEEF);         // reutilizável, determinístico
+    private const int Seed = unchecked((int)0xDEAD_BEEF);         // reusable, deterministic
 
     /// <summary>
-    /// Decide se a cópia real deve ser executada. Falha silenciosa para aproximação quando
-    /// não há path definido ou a flag --no-copy está ativa. Caminhos UNC SÃO executados:
-    /// a probe valida escritabilidade na prática e degrada com erro registrado se falhar.
+    /// Decides if real copy should run. Silently falls back to approximation when
+    /// no path is defined or --no-copy flag is set. UNC paths ARE executed:
+    /// the probe validates writeability in practice and degrades gracefully with logged error on failure.
     /// </summary>
-    // targetPath é nulável de fato: a CLI omite --path e o método já trata isso
-    // com IsNullOrWhiteSpace. Declarar como não-nulável era a anotação errada.
+    // targetPath is nullable: CLI omits --path and method handles it via IsNullOrWhiteSpace.
     public static CopyProbeDecision Decide(string? targetPath, bool realCopyDisabled)
     {
         if (realCopyDisabled) return CopyProbeDecision.FallbackToApproximation;
@@ -73,17 +72,17 @@ public sealed class RealCopyProbe
     }
 
     /// <summary>
-    /// Piso de credibilidade da aproximação por NIC (1 MB/s).
+    /// Credibility floor for NIC approximation (1 MB/s).
     ///
-    /// Abaixo disso o que se está lendo é tráfego de fundo de uma rede ociosa,
-    /// não uma cópia. Tratar isso como medição fazia o motor concluir
-    /// "assinatura SMB crítica" e recomendar desligar a assinatura sem evidência.
+    /// Below this, what is being read is idle network background traffic,
+    /// not a copy. Treating this as measurement caused the engine to conclude
+    /// "SMB signing critical" and recommend disabling signing without evidence.
     /// </summary>
     public const double MinCredibleApproximationBps = 1_000_000;
 
     /// <summary>
-    /// Procedência do número que vai para <see cref="ScanData.ObservedCopyThroughputBps"/>.
-    /// Só a cópia real bem-sucedida vale como <see cref="MeasurementQuality.Measured"/>.
+    /// Origin of the value passed to <see cref="ScanData.ObservedCopyThroughputBps"/>.
+    /// Only a successful real copy qualifies as <see cref="MeasurementQuality.Measured"/>.
     /// </summary>
     public static MeasurementQuality ResolveQuality(
         CopyProbeDecision decision, CopyProbeResult? probeResult, double approximationBps)
@@ -96,7 +95,7 @@ public sealed class RealCopyProbe
             : MeasurementQuality.Unavailable;
     }
 
-    /// <summary>Resolve o throughput observado, populando CollectionErrors quando houver fallback por falha.</summary>
+    /// <summary>Resolves observed throughput, populating CollectionErrors when fallback occurs due to failure.</summary>
     public static double ResolveObservedCopyBps(
         CopyProbeDecision decision,
         CopyProbeResult? probeResult,
@@ -109,7 +108,7 @@ public sealed class RealCopyProbe
                 return probeResult.EffectiveBps;
             case CopyProbeDecision.RunRealCopy when probeResult is not null:
             {
-                var msg = $"cópia de teste falhou ({probeResult.Error}): usando aproximação de tráfego NIC";
+                var msg = $"test copy failed ({probeResult.Error}): using NIC traffic approximation";
                 collectionErrors.Add(msg);
                 return approximationBps;
             }
@@ -119,8 +118,8 @@ public sealed class RealCopyProbe
     }
 
     /// <summary>
-    /// Executa a cópia de teste: escreve TotalBytes em chunks de 1 MB (WriteThrough no write)
-    /// e lê de volta, medindo MB/s de cada. O arquivo é apagado no finally.
+    /// Executes test copy: writes TotalBytes in 1 MB chunks (WriteThrough)
+    /// and reads back, measuring MB/s for each. The file is deleted in finally.
     /// </summary>
     public CopyProbeResult Probe(string targetPath)
     {
@@ -130,7 +129,7 @@ public sealed class RealCopyProbe
 
         try
         {
-            // ----- WRITE (com FlushToDisk/WriteThrough) -----
+            // ----- WRITE (with FlushToDisk/WriteThrough) -----
             using (var fs = new FileStream(probePath, FileMode.Create, FileAccess.Write, FileShare.None,
                        bufferSize: BufferSize,
                        FileOptions.WriteThrough))
@@ -144,7 +143,7 @@ public sealed class RealCopyProbe
                     written += toWrite;
                     remaining -= toWrite;
                 }
-                fs.Flush(true); // true = FlushToDisk (WriteThrough sem FileOptions extra)
+                fs.Flush(true); // true = FlushToDisk (WriteThrough without extra FileOptions)
                 writeBytes = written;
             }
 
@@ -179,7 +178,7 @@ public sealed class RealCopyProbe
         }
     }
 
-    /// <summary>Método de teste exposto para verificar tamanho do arquivo gravado.</summary>
+    /// <summary>Test method exposed to verify written file size.</summary>
     public void WriteTestFile(string path, long totalBytes)
     {
         var buffer = CreatePseudoRandomBuffer(BufferSize);
@@ -196,12 +195,12 @@ public sealed class RealCopyProbe
         fs.Flush(true);
     }
 
-    /// <summary>Buffer pseudo-aleatório, determinístico, reutilizável — mesmo seed, mesma sequência.</summary>
+    /// <summary>Pseudo-random, deterministic, reusable buffer — same seed, same sequence.</summary>
     public static byte[] CreatePseudoRandomBuffer(int length)
     {
         var buf = new byte[length];
         var span = buf.AsSpan();
-        // Preenche com padrões repetidos derivativos (determinísticos, não todos iguais)
+        // Fills with derivative repeating patterns (deterministic, not uniform)
         var rng = new Random(Seed);
         long written = 0;
         while (written < length)
@@ -214,26 +213,20 @@ public sealed class RealCopyProbe
         return buf;
     }
 
-    /// <summary>Formatação para MB/s com cultura invariant (dois decimais).</summary>
     /// <summary>
-    /// Formata bytes/s como MB/s DECIMAL (10^6), convenção para throughput de
-    /// rede e armazenamento.
-    ///
-    /// Antes dividia por 1024² (MiB) mas rotulava "MB/s", enquanto o JSON
-    /// expunha o mesmo dado em MB decimal — o relatório trazia dois números
-    /// diferentes para a mesma medição, ambos chamados "MB/s"
-    /// (89.48 e 85.33). Unificado em decimal.
+    /// Formats bytes/s as DECIMAL MB/s (10^6), convention for network
+    /// and storage throughput.
     /// </summary>
     public static string FormatMBps(double bps)
         => (bps / 1_000_000.0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>Descrição legível do resultado (usado em logs/erros).</summary>
+    /// <summary>Human-readable description of the result (used in logs/errors).</summary>
     public static string Describe(CopyProbeResult r)
         => $"write={FormatMBps(r.WriteBps)} MB/s, read={FormatMBps(r.ReadBps)} MB/s, effective={FormatMBps(r.EffectiveBps)} MB/s";
 
     private static long _bps(long bytes)
         => (long)(bytes * 1.0 / (ProbeDurationMs / 1000.0));
 
-    /// <summary>Duração da janela de medição (ms). Aumentar se quiser mais precisão em discos lentos.</summary>
-    internal static double ProbeDurationMs => 3000.0; // 3 segundos de amostragem
+    /// <summary>Measurement window duration (ms). Increase for higher precision on slow disks.</summary>
+    internal static double ProbeDurationMs => 3000.0; // 3-second sample window
 }

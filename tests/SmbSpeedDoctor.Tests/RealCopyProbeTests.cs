@@ -1,4 +1,5 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
+// Created by forg3
+// License: MIT
 using SmbSpeedDoctor.Core;
 using SmbSpeedDoctor.Core.Windows;
 using Xunit;
@@ -6,9 +7,8 @@ using Xunit;
 namespace SmbSpeedDoctor.Tests;
 
 /// <summary>
-/// Item 3 — cópia de teste real. A decisão (cópia vs aproximação), a resolução
-/// do throughput observado, a formatação dos resultados e a cópia em si
-/// (executada num tmpdir local — File I/O é cross-platform).
+/// Real test copy. The decision (copy vs approximation), observed throughput
+/// resolution, results formatting, and the copy itself (executed in local tmpdir — File I/O is cross-platform).
 /// </summary>
 public class RealCopyProbeTests : IDisposable
 {
@@ -23,33 +23,33 @@ public class RealCopyProbeTests : IDisposable
             Directory.Delete(_tmpDir, recursive: true);
     }
 
-    // ---------- Lógica de decisão ----------
+    // ---------- Decision logic ----------
 
     [Fact]
-    public void Sem_path_definido_cai_na_aproximacao()
+    public void Without_defined_path_falls_back_to_approximation()
     {
         Assert.Equal(CopyProbeDecision.FallbackToApproximation,
             RealCopyProbe.Decide(targetPath: "", realCopyDisabled: false));
     }
 
     [Fact]
-    public void Flag_no_copy_desativa_a_copia_real()
+    public void No_copy_flag_disables_real_copy()
     {
         Assert.Equal(CopyProbeDecision.FallbackToApproximation,
-            RealCopyProbe.Decide(targetPath: @"\\servidor\share", realCopyDisabled: true));
+            RealCopyProbe.Decide(targetPath: @"\\server\share", realCopyDisabled: true));
     }
 
     [Fact]
-    public void Caminho_alvo_valido_executa_copia_real()
+    public void Valid_target_path_executes_real_copy()
     {
         Assert.Equal(CopyProbeDecision.RunRealCopy,
-            RealCopyProbe.Decide(targetPath: @"\\servidor\share", realCopyDisabled: false));
+            RealCopyProbe.Decide(targetPath: @"\\server\share", realCopyDisabled: false));
     }
 
-    // ---------- Resolução do throughput observado ----------
+    // ---------- Observed throughput resolution ----------
 
     [Fact]
-    public void Copia_com_sucesso_popula_o_menor_entre_write_e_read()
+    public void Successful_copy_populates_minimum_between_write_and_read()
     {
         var result = new CopyProbeResult(true, 200_000_000, 120_000_000, 120_000_000, null);
         var errors = new List<string>();
@@ -57,27 +57,27 @@ public class RealCopyProbeTests : IDisposable
         double observed = RealCopyProbe.ResolveObservedCopyBps(
             CopyProbeDecision.RunRealCopy, result, approximationBps: 300_000_000, errors);
 
-        Assert.Equal(120_000_000, observed); // teto prático = min(write, read)
+        Assert.Equal(120_000_000, observed); // practical ceiling = min(write, read)
         Assert.Empty(errors);
     }
 
     [Fact]
-    public void Copia_que_falha_registra_motivo_e_volta_para_aproximacao()
+    public void Failed_copy_logs_reason_and_falls_back_to_approximation()
     {
-        var result = CopyProbeResult.Fail("acesso negado ao criar arquivo de teste");
+        var result = CopyProbeResult.Fail("access denied when creating test file");
         var errors = new List<string>();
 
         double observed = RealCopyProbe.ResolveObservedCopyBps(
             CopyProbeDecision.RunRealCopy, result, approximationBps: 250_000_000, errors);
 
         Assert.Equal(250_000_000, observed);
-        string motivo = Assert.Single(errors);
-        Assert.Contains("acesso negado", motivo);
-        Assert.Contains("aproximação", motivo);
+        string reason = Assert.Single(errors);
+        Assert.Contains("access denied", reason);
+        Assert.Contains("approximation", reason);
     }
 
     [Fact]
-    public void Fallback_por_decisao_nao_registra_erro_de_colecao()
+    public void Fallback_by_decision_does_not_log_collection_error()
     {
         var errors = new List<string>();
 
@@ -86,33 +86,33 @@ public class RealCopyProbeTests : IDisposable
             approximationBps: 100_000_000, errors);
 
         Assert.Equal(100_000_000, observed);
-        Assert.Empty(errors); // desativado de propósito não é falha de coleta
+        Assert.Empty(errors); // intentional disable is not a collection failure
     }
 
-    // ---------- A cópia em si (tmpdir local do Linux) ----------
+    // ---------- The copy itself (Linux local tmpdir) ----------
 
     [Fact]
-    public void Copia_em_tmpdir_medindo_write_e_read_e_apagando_arquivo()
+    public void Copy_in_tmpdir_measures_write_and_read_and_deletes_file()
     {
         Directory.CreateDirectory(_tmpDir);
 
-        var probe = new RealCopyProbe { TotalBytes = 8L * 1024 * 1024 }; // 8 MB p/ teste rápido
+        var probe = new RealCopyProbe { TotalBytes = 8L * 1024 * 1024 }; // 8 MB for quick test
         var result = probe.Probe(_tmpDir);
 
-        Assert.True(result.Success, $"esperava sucesso, veio: {result.Error}");
-        Assert.True(result.WriteBps > 0, "write MB/s deve ser > 0");
-        Assert.True(result.ReadBps > 0, "read MB/s deve ser > 0");
+        Assert.True(result.Success, $"expected success, got: {result.Error}");
+        Assert.True(result.WriteBps > 0, "write MB/s must be > 0");
+        Assert.True(result.ReadBps > 0, "read MB/s must be > 0");
         Assert.Equal(Math.Min(result.WriteBps, result.ReadBps), result.EffectiveBps);
         Assert.Null(result.Error);
-        Assert.Empty(Directory.GetFiles(_tmpDir)); // arquivo de teste apagado no finally
+        Assert.Empty(Directory.GetFiles(_tmpDir)); // test file deleted in finally
     }
 
     [Fact]
-    public void Copia_em_caminho_inexistente_falha_sem_estourar_excecao()
+    public void Copy_in_nonexistent_path_fails_without_throwing_exception()
     {
-        var inexistente = Path.Combine(_tmpDir, "nao-existe", "sub");
+        var nonexistent = Path.Combine(_tmpDir, "does-not-exist", "sub");
 
-        var result = new RealCopyProbe { TotalBytes = 1024 * 1024 }.Probe(inexistente);
+        var result = new RealCopyProbe { TotalBytes = 1024 * 1024 }.Probe(nonexistent);
 
         Assert.False(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
@@ -121,48 +121,47 @@ public class RealCopyProbeTests : IDisposable
     }
 
     [Fact]
-    public void Arquivo_escrito_tem_o_tamanho_total_solicitado()
+    public void Written_file_has_requested_total_size()
     {
         Directory.CreateDirectory(_tmpDir);
 
         long total = 3L * 1024 * 1024;
-        string destino = Path.Combine(_tmpDir, "alvo-manual");
+        string dest = Path.Combine(_tmpDir, "manual-target");
 
-        new RealCopyProbe().WriteTestFile(destino, total);
+        new RealCopyProbe().WriteTestFile(dest, total);
 
-        Assert.Equal(total, new FileInfo(destino).Length);
+        Assert.Equal(total, new FileInfo(dest).Length);
     }
 
-    // ---------- Buffer e formatação ----------
+    // ---------- Buffer and formatting ----------
 
     [Fact]
-    public void Buffer_pseudoaleatorio_e_deterministico_e_do_tamanho_pedido()
+    public void Pseudorandom_buffer_is_deterministic_and_matches_requested_size()
     {
         var b1 = RealCopyProbe.CreatePseudoRandomBuffer(64 * 1024);
         var b2 = RealCopyProbe.CreatePseudoRandomBuffer(64 * 1024);
 
         Assert.Equal(64 * 1024, b1.Length);
-        Assert.Equal(b1, b2);                       // mesma seed => mesmo conteúdo
-        Assert.NotEqual(new byte[b1.Length], b1);   // não é buffer zerado
+        Assert.Equal(b1, b2);                       // same seed => same content
+        Assert.NotEqual(new byte[b1.Length], b1);   // not zeroed buffer
     }
 
     [Fact]
-    public void FormatMBps_usa_cultura_invariante()
+    public void FormatMBps_uses_invariant_culture()
     {
-        // MB DECIMAL (10^6), nao MiB: throughput de rede se expressa assim, e
-        // o JSON usa a mesma base. Antes as duas bases conviviam no mesmo
-        // relatorio, ambas rotuladas "MB/s".
+        // DECIMAL MB (10^6), not MiB: network throughput is expressed this way, and
+        // JSON uses same base. Previously both bases coexisted in same report, both labeled "MB/s".
         Assert.Equal("10.00", RealCopyProbe.FormatMBps(10_000_000));
         Assert.Equal("0.50", RealCopyProbe.FormatMBps(500_000));
 
-        // A unidade é adicionada por Describe, não pelo formatador numérico.
+        // Unit is added by Describe, not numeric formatter.
         string described = RealCopyProbe.Describe(
             new CopyProbeResult(true, 10_000_000, 0, 0, null));
         Assert.Contains("10.00 MB/s", described);
     }
 
     [Fact]
-    public void Describe_mostra_write_read_e_teto_efetivo()
+    public void Describe_shows_write_read_and_effective_ceiling()
     {
         var result = new CopyProbeResult(true, 200_000_000, 100_000_000, 100_000_000, null);
 
@@ -170,16 +169,16 @@ public class RealCopyProbeTests : IDisposable
 
         Assert.Contains("write", s);
         Assert.Contains("read", s);
-        Assert.Contains("100.00 MB/s", s); // teto efetivo aparece formatado
+        Assert.Contains("100.00 MB/s", s); // effective ceiling formatted
     }
 
     // ---------------------------------------------------------------------
-    // Procedência do throughput: é o que separa "medi e deu baixo" de
-    // "não medi nada". Sem isso o motor concluía gargalo a partir de NIC ociosa.
+    // Throughput provenance: separates "measured and found low" from "did not measure anything".
+    // Without this the engine concluded bottleneck from idle NIC.
     // ---------------------------------------------------------------------
 
     [Fact]
-    public void Copia_real_bem_sucedida_e_medicao_Measured()
+    public void Successful_real_copy_is_Measured()
     {
         var ok = CopyProbeResult.Ok(120L * 1024 * 1024, 110L * 1024 * 1024);
 
@@ -190,10 +189,10 @@ public class RealCopyProbeTests : IDisposable
     }
 
     [Fact]
-    public void Sem_copia_e_com_rede_ociosa_e_Unavailable()
+    public void Without_copy_and_with_idle_network_is_Unavailable()
     {
-        // Cenário exato do bug: `scan` sem --path numa rede parada. A NIC rende
-        // ~886 B/s de tráfego de fundo — isso NÃO é medição de cópia.
+        // Exact bug scenario: `scan` without --path on idle network. NIC yields
+        // ~886 B/s background traffic — this is NOT a copy measurement.
         var q = RealCopyProbe.ResolveQuality(
             CopyProbeDecision.FallbackToApproximation, probeResult: null, approximationBps: 886);
 
@@ -201,7 +200,7 @@ public class RealCopyProbeTests : IDisposable
     }
 
     [Fact]
-    public void Sem_copia_mas_com_trafego_real_e_Approximated()
+    public void Without_copy_but_with_real_traffic_is_Approximated()
     {
         var q = RealCopyProbe.ResolveQuality(
             CopyProbeDecision.FallbackToApproximation, probeResult: null,
@@ -211,12 +210,12 @@ public class RealCopyProbeTests : IDisposable
     }
 
     [Fact]
-    public void Copia_real_que_falhou_nao_vira_Measured()
+    public void Failed_real_copy_does_not_become_Measured()
     {
-        var falhou = CopyProbeResult.Fail("acesso negado");
+        var failed = CopyProbeResult.Fail("access denied");
 
         var q = RealCopyProbe.ResolveQuality(
-            CopyProbeDecision.RunRealCopy, falhou, approximationBps: 886);
+            CopyProbeDecision.RunRealCopy, failed, approximationBps: 886);
 
         Assert.NotEqual(MeasurementQuality.Measured, q);
         Assert.Equal(MeasurementQuality.Unavailable, q);

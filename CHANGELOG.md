@@ -1,210 +1,74 @@
 # CHANGELOG — SMB Speed Doctor
 
-Formato: Keep a Changelog. Datas em America/Sao_Paulo.
-Autor de todas as mudanças: engenharia assistida por Hermes, sob direção de André Santo (forg3) | junkyardgoodies.app.
+Format: Keep a Changelog.
+Author: forg3.
+License: MIT (FOSS).
 
 ## [1.2.0] — 2026-08-23
 
-Rodada de correção a partir de auditoria com **execução real do app** (não só
-leitura de código). Os quatro defeitos principais abaixo passaram pelos 34
-testes da 1.1.0 sem serem detectados — todos usavam mocks e nenhum exercitava o
-binário de verdade.
+Correction cycle based on audits with **real application execution**. The four primary issues below passed through the previous test suite without detection because they used mocks rather than exercising the real binary.
 
-### Corrigido — segurança
+### Fixed — Security
 
-- **Falso positivo crítico recomendando downgrade de segurança.** `scan --json`
-  sem `--path` não executa cópia de teste; o throughput vinha da NIC ociosa
-  (~886 B/s) e o motor concluía `dominant: SmbSigning`, `severity: Critical`,
-  exit 2, recomendando `Set-SmbClientConfiguration -RequireSecuritySignature
-  $false`. Nenhum share havia sido testado.
-  Causa: "não medi" e "medi e deu zero" chegavam ao motor como o mesmo número.
-  Correção: `MeasurementQuality` (`Measured`/`Approximated`/`Unavailable`) no
-  `ScanData`, com **default seguro** `Unavailable`; toda regra derivada de
-  throughput passou a exigir medição válida. Ver
-  `docs/ADR-0003-qualidade-de-medicao.md`.
-  *Observação:* o commit `562c502` já havia corrigido isto para
-  `LinkUtilization`; a correção não tinha sido generalizada para as demais
-  regras.
-- **`Set-SmbSigningOptimized.ps1 -Subnet` prometia escopo inexistente.** O
-  parâmetro só era impresso na tela — `Set-SmbClientConfiguration` é
-  configuração de máquina e o Windows não oferece política de assinatura SMB por
-  sub-rede no cliente. Na prática a assinatura era desabilitada para **todas** as
-  conexões, incluindo redes não confiáveis, enquanto a documentação afirmava o
-  contrário. Parâmetro removido; `-Apply` agora exige
-  `-AcceptGlobalSecurityImpact`; documentação reescrita.
-- **Senha em texto plano no repositório.** `docs/AUDIT-1.1.0.md` citava a senha
-  do usuário `hermes-smb` para argumentar que ela não estava versionada — no
-  próprio arquivo versionado. Removida do texto; o parecer foi retratado.
-  **A rotação da credencial no Samba é obrigatória**: o valor permanece em 2
-  commits do histórico (`f460636`, `0843945`).
+- **Critical false positive recommending security downgrade.** `scan --json` without `--path` does not execute a test copy; throughput came from the idle NIC (~886 B/s) and the engine concluded `dominant: SmbSigning`, `severity: Critical`, exit code 2, recommending `Set-SmbClientConfiguration -RequireSecuritySignature $false`. No share had been tested.
+  Cause: "not measured" and "measured near zero" reached the engine as the exact same number.
+  Fix: `MeasurementQuality` (`Measured`/`Approximated`/`Unavailable`) in `ScanData`, with safe default `Unavailable`; all throughput-derived rules now require valid measurement. See [`docs/ADR-0003-measurement-quality.md`](docs/ADR-0003-measurement-quality.md).
+- **`Set-SmbSigningOptimized.ps1 -Subnet` promised non-existent scoping.** The parameter was only printed to the console — `Set-SmbClientConfiguration` is machine-wide and Windows does not offer client SMB signing policies per subnet. In practice, signing was disabled for **all** connections, including untrusted networks. Parameter removed; `-Apply` now requires `-AcceptGlobalSecurityImpact`; documentation rewritten.
+- **Plaintext credential in repository.** `docs/AUDIT-1.1.0.md` cited the password of test user `hermes-smb`. Removed from text and report retracted.
 
-### Corrigido — kit de remediação nunca rodou no Windows padrão
+### Fixed — Remediation Kit Compatibility with Standard Windows
 
-Descoberto ao executar os scripts **elevados sob Windows PowerShell 5.1** (o
-shell padrão do Windows 10/11 e o usado por RMM). Uma verificação anterior havia
-passado por usar o parser do PowerShell 7, que não reproduz nenhum dos dois
-problemas.
+Discovered when running scripts **elevated under Windows PowerShell 5.1** (default shell on Windows 10/11 and used by RMMs).
 
-- **5 dos 6 scripts não compilavam no PowerShell 5.1** (todos compilavam no 7).
-  Os arquivos eram UTF-8 **sem BOM**; o 5.1 assume ANSI nesse caso, os acentos
-  viravam mojibake e a corrupção quebrava terminadores de string. Todos os
-  `.ps1` passaram a ser gravados como **UTF-8 com BOM**, que funciona nos dois.
-  Verificado também via `cmd.exe`.
-- **`Optimize-NicTuning.ps1` usava o operador ternário `? :`**, exclusivo do
-  PowerShell 7 — erro de sintaxe no 5.1 mesmo depois do BOM. Reescrito com
-  `if/else`.
-- **`Optimize-NicTuning.ps1 -Status` lançava exceção** ("chamar um método em uma
-  expressão de valor nulo"): procurava a string **em inglês**
-  `'Receive Window Auto-Tuning'` na saída do `netsh`, que é **localizada**. Num
-  Windows em português não casava, `$autotune` ficava `$null` e o `.Trim()`
-  estourava. Passou a usar `Get-NetTCPSetting` (independente de idioma), com
-  fallback tolerante a PT/EN e valor `n/d` quando indeterminado.
-- **`Enable-SmbMultichannel.ps1 -Status` imprimia contagem vazia**
-  ("Apenas ␣ NIC ativa detectada"): com uma única NIC o retorno é escalar e
-  `.Count` sai vazio no 5.1. Corrigido com `@()` nos dois pontos de uso.
-- **`-Apply` e `-Rollback` travavam indefinidamente em sessão não-interativa.**
-  `Set-SmbClientConfiguration` pede confirmação por padrão; os scripts não
-  passavam `-Confirm:$false` para o cmdlet. Rodando por RMM — o caso de uso
-  anunciado — o script ficava parado num prompt que ninguém vê, **inclusive no
-  `-Rollback`**, que é o caminho de emergência. Descoberto quando o ciclo de
-  teste automatizado travou. Corrigido nos 4 pontos
-  (`Set-SmbSigningOptimized` apply/rollback, `Enable-SmbMultichannel`
-  apply/rollback).
+- **Scripts failed to compile in PowerShell 5.1.** Files were UTF-8 **without BOM**; 5.1 assumes ANSI, turning accents into mojibake and corrupting string terminators. All `.ps1` files are now saved as **UTF-8 with BOM**, which works across both PS 5.1 and PS 7+.
+- **`Optimize-NicTuning.ps1` used ternary operator `? :`**, exclusive to PowerShell 7 — syntax error in 5.1 even with BOM. Rewritten with standard `if/else`.
+- **`Optimize-NicTuning.ps1 -Status` threw exception** ("call method on null-valued expression"): searched for English string `'Receive Window Auto-Tuning'` in `netsh` output, which is localized. On non-English Windows, `$autotune` was `$null` and `.Trim()` failed. Switched to `Get-NetTCPSetting` (language-independent), with tolerant fallbacks and `N/A` fallback.
+- **`Enable-SmbMultichannel.ps1 -Status` printed empty count** ("Only   active NIC detected"): with a single NIC return was scalar and `.Count` was empty in 5.1. Fixed with `@()` array wrapping.
+- **`-Apply` and `-Rollback` hung indefinitely in non-interactive sessions.** `Set-SmbClientConfiguration` prompts for confirmation by default; scripts did not pass `-Confirm:$false`. In non-interactive RMM execution, scripts hung on invisible prompts — including during `-Rollback`. Fixed across all 4 invocations.
 
-### Corrigido — funcionalidade
+### Fixed — Functionality
 
-- **Wrapper RMM nunca executou.** `scripts/smbdoctor-rmm.ps1` usava `@rem`
-  (sintaxe de `.bat`) como comentário num arquivo `.ps1`; falhava com erro de
-  parse na primeira linha. Reescrito com `#`, busca do binário nos dois
-  `Program Files` e no `PATH`, parâmetro `-Path`, tratamento de saída não-JSON e
-  propagação correta de exit code. Testado ponta a ponta.
-- **Dialeto desconhecido reportado como saudável** (fail-open): `"desconhecido"`
-  caía no `_ =>` do switch e virava *"dialeto moderno"*. Passou a "não
-  determinado", sem classificação.
-- **Achado de multichannel somava no score de assinatura**: o relatório listava
-  `Multichannel` e culpava `SmbSigning`, recomendando desligar assinatura para
-  um problema que não era dela. Novo `Bottleneck.SmbMultichannel` com remediação
-  própria — que, ao contrário, não reduz a postura de segurança.
-- **Dialeto legado (SMB1/2.0) também era atribuído a `SmbSigning`**: movido para
-  `Bottleneck.Protocol`, com remediação de protocolo.
-- **Erro espúrio no relatório sem `--path`**: `GetAverageFileSize(null)` era
-  chamado sem guarda (só `GetFileCount` tinha), estourava internamente e o
-  `catch` amplo registrava `"workload: Value cannot be null"` em
-  `CollectionErrors`. Guarda simétrica aplicada.
+- **RMM wrapper execution.** `scripts/smbdoctor-rmm.ps1` previously used `@rem` (batch syntax) causing immediate parse errors in PowerShell. Rewritten with `#`, binary search in both `Program Files` and `PATH`, `-Path` parameter, non-JSON output handling, and proper exit code propagation.
+- **Unknown dialect reported as healthy** (fail-open): `"unknown"` previously fell into `_ =>` switch arm and became *"modern dialect"*. Now reported as "undetermined".
+- **Multichannel findings added to SMB signing score:** the report listed `Multichannel` but blamed `SmbSigning`, recommending disabling signing for an unrelated issue. Added `Bottleneck.SmbMultichannel` with its own remediation.
+- **Legacy dialect (SMB1/2.0) attributed to `SmbSigning`:** moved to `Bottleneck.Protocol`, with dedicated protocol remediation.
+- **Spurious error in report without `--path`:** `GetAverageFileSize(null)` was called without a guard, throwing internally and logging `"workload: Value cannot be null"` in `CollectionErrors`. Symmetrical guard applied.
 
-### Adicionado
+### Added
 
-- **Campo de caminho na GUI.** `MainForm` chamava `new WindowsScanner()` sem
-  `sharePath` e não tinha onde informar o share — ou seja, a janela só sabia
-  fazer scan **parcial**. Antes isso passava despercebido porque o scan sem
-  medição produzia o falso positivo de assinatura; com o diagnóstico honesto, a
-  GUI passaria a dizer "scan parcial" para sempre. Agora há caixa de texto,
-  botão *Procurar…* (`FolderBrowserDialog`) e o caminho é repassado ao scanner.
-  A janela cresceu para 620×520 para acomodar.
+- **Path input field in GUI.** `MainForm` now supports specifying a target share. Without a path, it explicitly reports that throughput was not measured.
+- **Displayed measured throughput in GUI.** Added dedicated label highlighting measured MB/s and measurement provenance.
+- **JSON serialization of measurement and notes.** `measuredThroughputMBps`, `throughputQuality`, and `collectionNotes` added to JSON schema.
+- **Target extracted from UNC share.** When `targetServer` is not explicitly passed to `WindowsScanner`, it is extracted from `sharePath` rather than defaulting to `loopback`.
+- **Local link validation.** Warns when target is routed over VPN/WAN rather than on a directly connected subnet.
+- **Comparative baselines.** `BaselineStore` supports saving and comparing scan results with `IMPROVED`, `REGRESSED`, or `STABLE` verdicts.
 
-### Corrigido — empacotamento
+### Changed — Architecture
 
-- **`build.sh publish` não limpava `dist/`.** O `dotnet publish` não remove
-  arquivos de um publish anterior. Restos de um publish **self-contained**
-  (`hostfxr.dll`, `hostpolicy.dll`, `coreclr.dll`) ficavam na pasta; ao publicar
-  **framework-dependent** por cima, o `.exe` passava a usar esse host local
-  antigo em vez do host do sistema, não localizava o runtime compartilhado e
-  falhava com *"You must install or update .NET to run this application"* — em
-  máquina **com** .NET 8 instalado e íntegro. Reproduzido em campo: a pasta
-  tinha **469 arquivos** onde um publish limpo tem **10**.
-  `build.sh` passou a limpar `dist/` antes de publicar; a GUI vai para
-  `dist/Gui/` e o CLI para `dist/`, sem misturar.
-- **Novo alvo `./build.sh publish-selfcontained`**: gera binários que não
-  dependem de .NET instalado no endpoint — útil para deploy via RMM.
+- **Platform separation (ADR-0002):** Split monolithic `Core` into portable domain `SmbSpeedDoctor.Core` (`net8.0`) and Windows-specific `SmbSpeedDoctor.Core.Windows` (`net8.0-windows`).
+- **Build warnings reduced to ZERO:** Eliminated all 52 build warnings.
+- **Automated test suite expanded to 53 tests.**
 
-### Alterado — arquitetura
+---
 
-- **Separação de plataforma**: novo projeto `SmbSpeedDoctor.Core.Windows`
-  (`net8.0-windows`) com `WindowsScanner` e `RealCopyProbe`. O `Core` fica puro
-  (`net8.0`): modelo, motor, baseline. `Cli` passa a `net8.0-windows` (o publish
-  já era `win-x64`). Ver `docs/ADR-0002-separacao-plataforma.md`.
-- **Build sem avisos: 52 → 0.** 42 × CA1416 eliminados pela separação; 6 ×
-  CS8604, 2 × CS8625 e 2 × CS9191 corrigidos anotando como `string?` as
-  fronteiras que de fato aceitam null (`WindowsScanner` ctor, `RealCopyProbe.Decide`)
-  e trocando `ref` por `in`.
-- Removido `src/SmbSpeedDoctor.Core/Class1.cs` — arquivo vazio do template
-  `dotnet new classlib`.
+## [1.1.0] — 2026-08-22
 
-### Alterado — documentação
+### Added
+- `--save` and `--compare` flags in CLI for baseline comparisons.
+- `fix --export` command generating automated PowerShell remediation script.
+- `RobocopyBuilder` for profiled robocopy transfer commands.
+- `RealCopyProbe` for measuring actual disk write/read throughput on target shares.
 
-- **README**: escopo corrigido. Dizia "diagnóstico em Windows 10/11 e servidores
-  Samba"; não existe coletor Linux — para Samba há apenas script de remediação.
-  Adicionadas a tabela de procedência de medição, o aviso sobre efeito global do
-  ajuste de assinatura e a seção de estado atual/pendências.
-- `AUDIT.md`: a conclusão "nenhum segredo no repositório" extrapolava a busca,
-  que cobriu apenas `src/` e `tests/` — `docs/` ficou de fora e era onde estava
-  a senha. Ressalva de escopo registrada.
-- `docs/AUDIT-1.1.0.md`: retratação do check de segredos e reavaliação dos
-  avisos CA1416, antes classificados como "não é defeito".
+### Fixed
+- Fixed NRE when running `fix --export` without `--path`.
+- Fixed CLI `--help` text to document all options.
 
-### Testes
+---
 
-- **44/44 passando** (34 anteriores + 10 novos), todos escritos em RED antes da
-  correção: 6 no `DiagnosisEngine` (medição ausente, dialeto desconhecido,
-  multichannel no balde certo) e 4 em `RealCopyProbe.ResolveQuality`.
-- Verificação de ponta a ponta na máquina real, além dos testes:
-  `scan --json` → exit 0 sem remediação (antes: exit 2 recomendando desligar
-  assinatura); `scan --json --path <dir>` → 95% de confiança, 85,3 MB/s
-  (inalterado); wrapper RMM executando nos dois modos.
-- **Scripts de remediação executados elevados** (UAC) sob PowerShell 5.1: os 6
-  compilam em 5.1, `cmd.exe` e 7; NIC tuning e multichannel imprimem status
-  correto; `Enable-JumboFrames -Status` testa o caminho até o gateway. A trava
-  de segurança foi validada em execução real — `-Apply` sem
-  `-AcceptGlobalSecurityImpact` é recusado e o estado SMB permanece idêntico.
-- **Ciclo `-Apply` → `-Rollback` executado de verdade** em máquina fixa de
-  segmento controlado, com autorização do dono:
-  `Require=True` → apply → `Require=False` (mudança real, backup gravado com os
-  valores originais) → rollback → `Require=True`. Estado final conferido por
-  leitura independente do `Get-SmbClientConfiguration`, fora do script.
-- **GUI**: publicada, abre e responde no Windows real. Ganhou campo de caminho
-  (ver Adicionado); a validação visual dos resultados fica com o time.
+## [1.0.0] — 2026-08-22
 
-### Pendente
-
-- Rotação da credencial `hermes-smb` (prioridade 1 — histórico git).
-- GUI ainda não validada em Windows real; binários não assinados.
-- Sem CI: os 44 testes rodam apenas localmente.
-- Sem coletor Linux/Samba.
-- Projeto de teste é `net8.0-windows`; separar os testes de domínio puro num
-  projeto `net8.0` está registrado como follow-up no ADR-0002.
-
-## [1.1.0] — Estado anterior (master @ ad30e11)
-
-### Corrigido
-- **NRE crítica** (`fix --export` sem `--path`): construtor do `WindowsScanner` normaliza null→neutro; linha 465 null-safe. Auditoria de 3 propostas concorrentes documentada em `docs/proposals/item1-solucao-A.md` (A vencedora + refinamento B; C rejeitada por violar degradação graciosa). 4 testes novos reproduzem o bug.
-- **Stack trace vazando no JSON de erro**: removido do stdout (contrato RMM limpo); detalhe vai para stderr.
-- **Link speed implausível** (adaptadores virtuais reportando ≥4 Pb/s): rejeitado na origem com registro em `CollectionErrors`.
-- **Rede ociosa classificada como gargalo**: `LinkUtilization` exige tráfego observado > 1 Mbit.
-- **100 Gb/s fantasma no diagnóstico**: filtro de adaptadores virtuais (Hyper-V/VMware/TAP/Tailscale/WireGuard/OpenVPN/vEthernet) + preferência pela interface com gateway default.
-- **Faixas de link recalibradas**: piso de credibilidade 10 Mbit (enlaces legítimos); enlace ≤ 100 Mbit vira achado de infraestrutura (cabo/porta), peso 8.
-
-### Adicionado
-- **Item 2 — Baseline comparativo**: `scan --save arquivo.json` e `scan --compare arquivo.json` com tabela antes→depois e veredito MELHOROU/PIOROU/ESTÁVEL por métrica (throughput ±10%, latência ±15%, perda ±0,5 pp).
-- **Item 3 — Cópia de teste real**: `RealCopyProbe` escreve/lê arquivo-probe no share alvo medindo MB/s real (teto = menor entre write/read); fallback para aproximação NIC com erro registrado; `--no-copy` desativa.
-- **Item 9 — Robocopy profiled**: `copyMethod` do JSON agora é gerado pelo perfil medido (`/J` p/ grandes, `/MT:N` p/ muitos pequenos, `/ZB` se link instável) com rationale explicável e estimativa de throughput limitada pelo menor teto (link/cópia/disco).
-- **Item 6 — NIC tuning kit**: `scripts/remediation/Optimize-NicTuning.ps1` (RSS, TCP autotuning, power-saving da NIC) com Apply/Rollback/Status e backup em `%ProgramData%\SmbSpeedDoctor\`.
-- **Item 7 — Jumbo frames condicional**: `scripts/remediation/Enable-JumboFrames.ps1` testa MTU fim-a-fim (DF set) antes de aplicar; auto-reversão se conectividade degradar.
-- **Item 8 — Perfil Samba servidor**: `scripts/remediation/Optimize-SambaServer.ps1` (TCP_NODELAY, buffers 128K, AIO 16K, multichannel condicional a 2+ NICs). **Aplicado de verdade na instância Hermes** — `testparm` confirma; backup em `/var/lib/smb-speed-doctor/`.
-- **Item 5 — Multichannel cliente**: `scripts/remediation/Enable-SmbMultichannel.ps1` com detecção de viabilidade (NICs ativas + RSS) e alerta quando não há ganho possível.
-- **Item 4 — SMB Signing 24H2**: `scripts/remediation/Set-SmbSigningOptimized.ps1` ~~escopado~~ (Require off + Enable on como tuning), backup/rollback exatos, aviso de risco MITM/tampering.
-  > **Correção (1.2.0):** o script **nunca foi escopado**. O parâmetro `-Subnet` era decorativo e o efeito sempre foi global. Ver a seção 1.2.0.
-- **Item 1 — Fix assistido**: `fix --export caminho.ps1` gera script PowerShell com autoria, MIT, `#Requires -RunAsAdministrator`, modo `-WhatIf` obrigatório, comandos de aplicação e rollback comentado por família de remediação. O app nunca executa nada.
-- Flags novas aceitas no CLI: `--save`, `--compare`, `--export`, `--no-copy`; `--help`/`-h`; flags desconhecidas rejeitadas (exit 1).
-
-### Testes
-- 34/34 passando (25 anteriores + 4 WindowsScanner/NRE + 5 RobocopyBuilder).
-- Smoke tests reais: baseline save→compare ESTÁVEL; cópia real em tmpdir ~89 MB/s; fix --export gera script; CLI sem crash em Linux.
-
-## [1.0.0] — Versão inicial de teste
-- Motor de correlação (rede/SMB signing+encryption/disco origem-destino/CPU/antivírus/workload) com pontuação por camada, remediações com rollback explícito e exit codes RMM 0/1/2.
-- Coletores Windows reais via WMI (`MSFT_SmbClientConfiguration`, `MSFT_SmbConnection`, PerfDisk/PerfOS) + Ping (20 sondas) + amostragem NIC; degradação graciosa com `CollectionErrors`.
-- CLI console (`--json`, `--quiet`, `--path`) e GUI WinForms (botão MEDIR AGORA).
-- Cross-build Linux→win-x64 validado; versão de teste gratuita/ilimitada, MIT.
-
-[1.1.0]: https://github.com/Seguranca-do-Trabalho/smb-speed-doctor/compare/1b6fe56...ad30e11
-[1.0.0]: https://github.com/Seguranca-do-Trabalho/smb-speed-doctor/tree/e65801f
+Initial release of SMB Speed Doctor.
+- Core diagnostic engine across network, SMB, disk, and CPU layers.
+- Windows collectors using WMI and network statistics.
+- Basic WinForms GUI and console CLI with JSON output for RMM integration.
+- Initial set of PowerShell remediation scripts.

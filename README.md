@@ -1,256 +1,152 @@
 # SMB Speed Doctor
 
-Ferramenta **gratuita, ilimitada e sem custos** (MIT) de diagnóstico de gargalos
-de rede SMB. Coleta métricas de todas as camadas (rede, SMB, disco
-origem/destino, CPU, antivírus, workload), correlaciona e responde em uma frase
-qual é o gargalo dominante — com sugestão de remediação que sempre carrega
-caminho de rollback.
+**Free, open-source (MIT / FOSS)** diagnostic tool for SMB network performance bottlenecks. Collects metrics across all layers (network, SMB, source/target disk, CPU, antivirus, workload), correlates them, and identifies the dominant bottleneck in a single sentence — complete with remediation recommendations that always include a rollback path.
 
-**Escopo real:** o **diagnóstico roda no cliente Windows 10/11**. Para servidores
-Samba há um **script de remediação** (`Optimize-SambaServer.ps1`), mas **não há
-coletor Linux** — nada é medido do lado do servidor. Versões anteriores deste
-README diziam "diagnóstico em Windows e servidores Samba", o que prometia mais
-do que o produto entrega. Coleta em Linux está no roadmap, não no release.
+**Scope:** The **diagnostics run on the Windows 10/11 client**. For Samba servers, there is a **remediation script** (`Optimize-SambaServer.ps1`), but **no Linux collector** — nothing is measured on the server side. Linux collection is on the roadmap.
 
-**Release atual:** 1.2.0 — correção de um falso positivo crítico que recomendava
-downgrade de segurança sem medição (ver
-[`docs/ADR-0003-qualidade-de-medicao.md`](docs/ADR-0003-qualidade-de-medicao.md)),
-separação de plataforma
-([`docs/ADR-0002`](docs/ADR-0002-separacao-plataforma.md)) e wrapper RMM que
-passou a de fato executar. **44/44 testes, build com 0 avisos.**
-Histórico completo em [`CHANGELOG.md`](CHANGELOG.md).
+**Current Release:** 1.2.0 — fixes a critical false positive that recommended security downgrades without measurement (see [`docs/ADR-0003-measurement-quality.md`](docs/ADR-0003-measurement-quality.md)), platform separation ([`docs/ADR-0002`](docs/ADR-0002-platform-separation.md)), and a functional RMM wrapper. **53/53 tests passing, build with 0 warnings.** Full history in [`CHANGELOG.md`](CHANGELOG.md).
 
-> ⚠️ **Meça com `--path`.** Sem um compartilhamento alvo não há cópia de teste e,
-> portanto, **não há medição de throughput** — o diagnóstico não conclui sobre
-> assinatura, multichannel, disco ou CPU, e diz isso explicitamente no relatório.
+> ⚠️ **Measure with `--path`.** Without a target share, there is no real test copy and therefore **no throughput measurement** — the diagnosis will not draw conclusions about signing, multichannel, disk, or CPU, and explicitly states this in the report.
 
-Criado por André Santo (forg3) | junkyardgoodies.app
-Repositório canônico: https://github.com/Seguranca-do-Trabalho/smb-speed-doctor
+Created by forg3  
+Canonical Repository: https://github.com/Seguranca-do-Trabalho/smb-speed-doctor  
+License: MIT (Free and Open-Source Software)
 
 ---
 
-## Descrição
+## Overview
 
-O diagnóstico cruza cinco camadas e aponta o gargalo dominante em uma frase,
-com nível de confiança:
+The diagnostic engine correlates five layers and pinpoints the dominant bottleneck in a single sentence, along with a confidence level:
 
-- **Rede:** velocidade negociada do enlace, utilização real (só conta com
-  tráfego observado), perda de pacotes, adaptadores virtuais filtrados
-  (Hyper-V/VPN/Tailscale) para não gerar falso positivo.
-- **SMB:** dialeto negociado, assinatura/criptografia obrigatória (incluindo o
-  cenário Windows 11 24H2), multichannel ativo.
-- **Disco:** saturação na origem e no destino da cópia.
-- **Carga:** CPU e filtro de antivírus.
-- **Workload:** muitos arquivos pequenos × poucos arquivos grandes muda a
-  recomendação (robocopy profiled).
+- **Network:** negotiated link speed, actual utilization (only counts observed traffic), packet loss, filtered virtual adapters (Hyper-V / VPN / Tailscale) to prevent false positives.
+- **SMB:** negotiated dialect, mandatory signing/encryption (including the Windows 11 24H2 scenario), active multichannel.
+- **Disk:** saturation on copy source and destination.
+- **Load:** CPU utilization and antivirus minifilter activity.
+- **Workload:** many small files vs. few large files alters recommendations (profiled robocopy).
 
-A cópia de teste real (`RealCopyProbe`) escreve/lê um arquivo-probe no share
-alvo e mede MB/s verdadeiro — não estimativa. Se a cópia falhar, cai para
-aproximação por NIC e registra o motivo em `collectionErrors`.
+The real test copy (`RealCopyProbe`) writes and reads a probe file on the target share and measures actual MB/s — not an estimate. If the copy fails, it falls back to NIC approximation and logs the reason in `collectionErrors`.
 
-### Procedência da medição
+### Measurement Provenance
 
-Cada scan declara **de onde veio** o número de throughput, e o motor só conclui
-o que a evidência sustenta:
+Every scan explicitly declares **where** the throughput number came from, and the engine only concludes what evidence supports:
 
-| Procedência | Quando | O que o motor conclui |
+| Provenance | Condition | What the engine concludes |
 |---|---|---|
-| `Measured` | cópia de teste real executada | tudo |
-| `Approximated` | sem cópia, mas com tráfego de rede acima de 1 MB/s | tudo, com confiança menor |
-| `Unavailable` | sem cópia e rede ociosa | **nada** que dependa de throughput |
+| `Measured` | Real test copy executed | Full diagnosis |
+| `Approximated` | No copy, but network traffic above 1 MB/s | Full diagnosis, with lower confidence |
+| `Unavailable` | No copy and idle network | **Nothing** dependent on throughput |
 
-Com `Unavailable`, sinais diretos continuam valendo (perda de pacote, enlace
-negociado, dialeto, criptografia, antivírus) — o scan rápido segue útil. O que
-não acontece mais é o programa concluir "assinatura SMB é o gargalo" a partir de
-uma rede parada. Detalhes e o caso real em
-[`docs/ADR-0003`](docs/ADR-0003-qualidade-de-medicao.md).
+With `Unavailable`, direct signals remain valid (packet loss, link speed, dialect, encryption, antivirus) — the quick scan remains useful. What no longer happens is the tool concluding "SMB signing is the bottleneck" from an idle network. Details in [`docs/ADR-0003`](docs/ADR-0003-measurement-quality.md).
 
-## Como utilizar
+## Usage
 
-### Compilar
+### Building
 
-Requisito: .NET 8 SDK (neste host, instalado em `~/.dotnet`).
+Prerequisite: .NET 8 SDK (installed on this host in `~/.dotnet`).
 
 ```bash
-./build.sh                        # restore + build Debug + testes unitários
-./build.sh publish                # win-x64 em dist/ (CLI) e dist/Gui/ (GUI)
-./build.sh publish-selfcontained  # win-x64 sem dependência de .NET instalado
+./build.sh                        # restore + build Debug + unit tests
+./build.sh publish                # win-x64 to dist/ (CLI) and dist/Gui/ (GUI)
+./build.sh publish-selfcontained  # win-x64 without .NET runtime dependency
 ```
 
-O `publish` normal é **framework-dependent**: a máquina alvo precisa do **.NET 8
-Desktop Runtime (x64)**. Para endpoints que não têm .NET, use
-`publish-selfcontained` (~150 MB por app, sem pré-requisito).
+Standard `publish` is **framework-dependent**: the target machine requires the **.NET 8 Desktop Runtime (x64)**. For endpoints without .NET installed, use `publish-selfcontained` (~150 MB per app, no prerequisites).
 
-> ⚠️ **Nunca publique por cima de uma pasta `dist/` antiga.** O `dotnet publish`
-> não remove arquivos que sobraram. Um publish self-contained anterior deixa
-> `hostfxr.dll`/`hostpolicy.dll`/`coreclr.dll` na pasta; ao publicar
-> framework-dependent por cima, o `.exe` usa esse host local antigo em vez do
-> host do sistema e falha com *"You must install or update .NET to run this
-> application"* — **numa máquina que tem o .NET instalado**. Já aconteceu.
-> O `build.sh` limpa `dist/` automaticamente; se publicar à mão, limpe antes.
+> ⚠️ **Never publish over an existing `dist/` directory.** `dotnet publish` does not remove leftover files. A previous self-contained publish leaves `hostfxr.dll`/`hostpolicy.dll`/`coreclr.dll` in the folder; publishing framework-dependent over it causes the `.exe` to use that local host instead of the system runtime, failing with *"You must install or update .NET to run this application"* — **on a machine that has .NET installed**. `build.sh` automatically cleans `dist/`; if publishing manually, delete `dist/` first.
 
-### CLI no Windows (terminal/RMM)
+### Windows CLI (Terminal / RMM)
 
-Copie `dist/` para a máquina Windows. Binário: `SmbSpeedDoctor.Cli.exe`.
+Copy `dist/` to the Windows machine. Binary: `SmbSpeedDoctor.Cli.exe`.
 
 ```text
 scan [--json] [--quiet] [--path <share>] [--no-copy]
-     [--save <arquivo.json>] [--compare <arquivo.json>]
+     [--save <file.json>] [--compare <file.json>]
 fix  --export <script.ps1>
 ```
 
-| Comando | O que faz |
+| Command | Description |
 |---|---|
-| `SmbSpeedDoctor.Cli.exe scan` | Diagnóstico em texto legível |
-| `SmbSpeedDoctor.Cli.exe scan --json` | JSON completo (integração RMM) |
-| `SmbSpeedDoctor.Cli.exe scan --path \\servidor\share` | Foca em um share UNC específico |
-| `SmbSpeedDoctor.Cli.exe scan --no-copy` | Scan rápido, sem cópia de teste real |
-| `SmbSpeedDoctor.Cli.exe scan --save antes.json` | Salva baseline para comparação futura |
-| `SmbSpeedDoctor.Cli.exe scan --compare antes.json` | Compara com baseline: MELHOROU/PIOROU/ESTÁVEL por métrica |
-| `SmbSpeedDoctor.Cli.exe fix --export correcao.ps1` | Gera script PowerShell de correção (**NÃO executa nada**) |
+| `SmbSpeedDoctor.Cli.exe scan` | Human-readable diagnosis |
+| `SmbSpeedDoctor.Cli.exe scan --json` | Full JSON output (RMM integration) |
+| `SmbSpeedDoctor.Cli.exe scan --path \\server\share` | Focuses on a specific UNC share |
+| `SmbSpeedDoctor.Cli.exe scan --no-copy` | Quick scan, disables real test copy |
+| `SmbSpeedDoctor.Cli.exe scan --save before.json` | Saves baseline for future comparison |
+| `SmbSpeedDoctor.Cli.exe scan --compare before.json` | Compares with baseline: IMPROVED / REGRESSED / STABLE per metric |
+| `SmbSpeedDoctor.Cli.exe fix --export fix.ps1` | Generates PowerShell remediation script (**does NOT execute anything**) |
 
-Contrato de exit codes para RMM: `0` = ok · `1` = warning/erro · `2` = gargalo
-crítico. Flag desconhecida → exit 1 com texto de uso.
+Exit codes contract for RMM: `0` = ok · `1` = warning/error · `2` = critical bottleneck. Unknown flags return exit 1 with usage help.
 
-Integração RMM pronta: copie/cole `scripts/smbdoctor-rmm.ps1`. Ele localiza o
-binário nos dois `Program Files` e no `PATH`, e aceita `-Path` para medir:
+Ready-to-use RMM integration: use `scripts/smbdoctor-rmm.ps1`. It searches for the binary in both `Program Files` and in `PATH`, and accepts `-Path` to measure:
 
 ```powershell
-.\smbdoctor-rmm.ps1 -Path '\\servidor\share'
+.\smbdoctor-rmm.ps1 -Path '\\server\share'
 ```
 
-Exemplo direto pelo binário:
+Direct binary usage example:
 
 ```powershell
-$out = & 'C:\tools\SmbSpeedDoctor.Cli.exe' scan --json --path '\\servidor\share' | ConvertFrom-Json
-$out.summary      # frase única do gargalo dominante
-$out.copyMethod   # comando robocopy profiled + rationale + estimativa
-$LASTEXITCODE     # 0 ok / 1 warning / 2 crítico
+$out = & 'C:\tools\SmbSpeedDoctor.Cli.exe' scan --json --path '\\server\share' | ConvertFrom-Json
+$out.summary      # single-sentence dominant bottleneck summary
+$out.copyMethod   # profiled robocopy command + rationale + estimate
+$LASTEXITCODE     # 0 ok / 1 warning / 2 critical
 ```
 
-Sem `--path` o scan é parcial: ele reporta os sinais diretos e declara, em
-`findings`, que o throughput não foi medido.
+Without `--path` the scan is partial: it reports direct signals and declares in `findings` that throughput was not measured.
 
 ### GUI
 
-Execute `dist/Gui/SmbSpeedDoctor.Gui.exe`: janela única com campo de
-compartilhamento, botão **MEDIR AGORA** e lista de achados.
+Run `dist/Gui/SmbSpeedDoctor.Gui.exe`: a single window with a share path input field, a **MEASURE NOW** button, and a findings list.
 
-**Informe o compartilhamento** no campo (ou use *Procurar…*). Sem caminho, a GUI
-faz scan parcial e diz explicitamente que o throughput não foi medido — ela não
-inventa um veredito.
+**Specify the share** in the field (or click *Browse…*). Without a path, the GUI runs a partial scan and explicitly states that throughput was not measured — it never invents a verdict.
 
-### Scripts de remediação (sempre com Apply/Rollback/Status)
+### Remediation Scripts (Always with Apply / Rollback / Status)
 
-Em `scripts/remediation/`, todos fazem backup do estado anterior e revertem:
+In `scripts/remediation/`, all scripts back up previous state and support rollback:
 
-| Script | Função |
+| Script | Purpose |
 |---|---|
-| `Optimize-NicTuning.ps1` | RSS, TCP autotuning, power-saving da NIC |
-| `Enable-JumboFrames.ps1` | Testa MTU fim-a-fim (DF set) antes de aplicar |
-| `Enable-SmbMultichannel.ps1` | Ativa multichannel quando há viabilidade (NICs + RSS) |
-| `Set-SmbSigningOptimized.ps1` | Remove obrigatoriedade de assinatura SMB (Win11 24H2) — **efeito GLOBAL**, exige `-AcceptGlobalSecurityImpact` |
-| `Optimize-SambaServer.ps1` | Perfil servidor Samba (TCP_NODELAY, buffers 128K, AIO 16K) |
+| `Optimize-NicTuning.ps1` | RSS, TCP autotuning, NIC power saving |
+| `Enable-JumboFrames.ps1` | Tests end-to-end MTU (DF set) before applying |
+| `Enable-SmbMultichannel.ps1` | Enables multichannel when feasible (multiple NICs + RSS) |
+| `Set-SmbSigningOptimized.ps1` | Removes SMB signing requirement (Win11 24H2) — **GLOBAL effect**, requires `-AcceptGlobalSecurityImpact` |
+| `Optimize-SambaServer.ps1` | Samba server profile (TCP_NODELAY, 128K buffers, 16K AIO) |
 
-Uso padrão: `-Apply` aplica (com backup), `-Rollback` reverte, `-Status`
-consulta. **Todos exigem PowerShell elevado** (Executar como Administrador);
-`-Status` também, por consultar configuração de sistema.
+Standard parameters: `-Apply` applies changes (with backup), `-Rollback` reverts, `-Status` inspects current state. **All require elevated PowerShell** (Run as Administrator); `-Status` as well, due to querying system configurations.
 
-Compatíveis com **Windows PowerShell 5.1** (o padrão do Windows 10/11, também
-via `cmd.exe`) e com o PowerShell 7. Até a 1.1.0, 5 dos 6 scripts **não
-compilavam no 5.1** — os arquivos eram UTF-8 sem BOM e um deles usava operador
-ternário, exclusivo do PS7. Se for editar estes scripts, **mantenha o UTF-8 com
-BOM**, ou os acentos quebram o parse no 5.1.
-O script gerado por `fix --export` também nunca executa nada sozinho:
-rode primeiro com `-WhatIf`.
+Compatible with **Windows PowerShell 5.1** (default in Windows 10/11) and PowerShell 7. All scripts are saved with **UTF-8 BOM**.
+The script generated by `fix --export` never executes on its own: run with `-WhatIf` first.
 
-> ⚠️ **Sobre `Set-SmbSigningOptimized.ps1`.** `Set-SmbClientConfiguration` é uma
-> configuração **de máquina**: o Windows não oferece política de assinatura SMB
-> por sub-rede no cliente. Ao aplicar, a exigência de assinatura cai para
-> **todas** as conexões SMB da máquina — Wi-Fi público, VPN, DMZ inclusive.
->
-> Até a versão 1.1.0 o script aceitava um parâmetro `-Subnet` e dizia aplicar
-> "tuning escopado". Era falso: o valor só era impresso na tela e nunca limitou
-> coisa alguma. O parâmetro foi removido e o `-Apply` agora exige
-> `-AcceptGlobalSecurityImpact`, para que a decisão seja deliberada e fique
-> registrada. Em máquina que circula por redes de terceiros, **não aplique**.
+> ⚠️ **About `Set-SmbSigningOptimized.ps1`:** `Set-SmbClientConfiguration` is a **machine-wide** setting: Windows does not offer per-subnet client SMB signing policies. Applying this setting removes the requirement for **all** SMB connections from the machine — including public Wi-Fi, VPNs, and DMZs. `-Apply` requires `-AcceptGlobalSecurityImpact` to ensure deliberate acknowledgment. Do not apply on laptops that travel through untrusted networks.
 
-### Baseline antes/depois (fluxo recomendado)
+### Before / After Baseline Workflow
 
 ```powershell
-SmbSpeedDoctor.Cli.exe scan --save antes.json        # antes da remediação
-.\scripts\remediation\Optimize-NicTuning.ps1 -Apply  # aplica correção
-SmbSpeedDoctor.Cli.exe scan --compare antes.json     # prova do ganho
+SmbSpeedDoctor.Cli.exe scan --save before.json --path \\server\share    # before remediation
+.\scripts\remediation\Optimize-NicTuning.ps1 -Apply                    # apply fix
+SmbSpeedDoctor.Cli.exe scan --compare before.json --path \\server\share # prove the gain
 ```
 
-## Estado atual e pendências
-
-### Corrigido na 1.2.0
-
-| Era | Virou |
-|---|---|
-| `scan` sem `--path` acusava gargalo crítico e recomendava desligar assinatura SMB, sem medir nada | Declara que não mediu; não conclui sobre throughput |
-| 52 avisos de build (42 CA1416 + 10 de nulabilidade) | **0 avisos** |
-| `smbdoctor-rmm.ps1` não compilava (comentários `@rem`, sintaxe .bat em `.ps1`) | Executa; testado ponta a ponta |
-| `Set-SmbSigningOptimized.ps1 -Subnet` sugeria escopo que não existia | Parâmetro removido; efeito global explícito e com trava |
-| Dialeto desconhecido reportado como "dialeto moderno" | "não determinado" |
-| Achado de multichannel somava no score de assinatura | Balde e remediação próprios |
-| Senha em texto plano em `docs/AUDIT-1.1.0.md` | Removida (**rotação obrigatória**, ver abaixo) |
-
-### Pendências
-
-1. **Rotacionar a credencial `hermes-smb`** — a senha foi removida dos arquivos,
-   mas **permanece em 2 commits do histórico** (`f460636`, `0843945`). Remover
-   do working tree não apaga o histórico; a rotação é a mitigação real.
-   *Prioridade 1.*
-2. **GUI não validada em Windows real** — o build win-x64 completa e a pasta tem
-   todos os DLLs nativos, mas ninguém abriu a GUI num Windows físico ainda.
-3. **Binários não assinados** — primeira execução pode levantar SmartScreen;
-   distribuição ampla exige code signing.
-4. **Sem CI** — os 44 testes rodam só localmente. Um workflow no GitHub Actions
-   (Windows runner) evitaria que regressões como as acima cheguem ao `master`.
-5. **Sem coletor Linux/Samba** — o diagnóstico é do lado cliente Windows. A
-   separação `Core` / `Core.Windows` (ADR-0002) abriu o caminho, mas o coletor
-   ainda não existe.
-6. **Testes exigem Windows** — o projeto de teste é `net8.0-windows` porque cobre
-   a coleta WMI. Separar os testes de domínio puro num projeto `net8.0` está
-   registrado como follow-up no ADR-0002.
-
-## Próximos passos
-
-Para o time, em ordem de prioridade:
-
-1. **Rotacionar credencial `hermes-smb`** no Samba do host de testes.
-2. **Validar a GUI no Windows real** (máquina offic3): abrir
-   `dist/SmbSpeedDoctor.Gui.exe`, rodar MEDIR AGORA contra um share real e
-   registrar resultado em issue.
-3. **Rodar o fluxo baseline→remediação→compare** em um cenário com gargalo
-   conhecido e validar que o veredito MELHOROU/PIOROU corresponde ao esperado.
-   Use sempre `--path` — sem ele não há medição.
-4. **Adicionar CI** (GitHub Actions, runner Windows): `dotnet build` com
-   `TreatWarningsAsErrors` e `dotnet test` em cada push.
-5. **Avaliar code signing** dos binários win-x64 antes de qualquer distribuição
-   externa (hoje o uso é interno à equipe).
-
-## Estrutura
+## Structure
 
 ```text
-src/SmbSpeedDoctor.Core           domínio PURO, net8.0 (modelo, motor, baseline)
-src/SmbSpeedDoctor.Core.Windows   coleta WMI/Ping + RealCopyProbe, net8.0-windows
-src/SmbSpeedDoctor.Cli            console (--json, baselines, fix --export)
-src/SmbSpeedDoctor.Gui            WinForms (um botão, uma lista)
-tests/SmbSpeedDoctor.Tests        xUnit — 44 testes
-scripts/remediation/              5 kits Apply/Rollback/Status
-scripts/smbdoctor-rmm.ps1         wrapper MIT pronto p/ RMM
-docs/ADR-0001-stack.md            decisão de stack
-docs/ADR-0002-separacao-plataforma.md   por que Core e Core.Windows são separados
-docs/ADR-0003-qualidade-de-medicao.md   por que sem medição não há diagnóstico
-docs/AUDIT-1.1.0.md               parecer 1.1.0 (com correções da revisão posterior)
-CHANGELOG.md                      histórico 1.0.0 → 1.2.0
-build.sh                          build + testes + publish
+src/SmbSpeedDoctor.Core           Pure domain, net8.0 (model, engine, baseline)
+src/SmbSpeedDoctor.Core.Windows   WMI/Ping collection + RealCopyProbe, net8.0-windows
+src/SmbSpeedDoctor.Cli            Console CLI (--json, baselines, fix --export)
+src/SmbSpeedDoctor.Gui            WinForms GUI (one button, findings list)
+tests/SmbSpeedDoctor.Tests        xUnit — 53 tests
+scripts/remediation/              5 Apply/Rollback/Status kits
+scripts/smbdoctor-rmm.ps1         Ready-to-use RMM wrapper (MIT)
+scripts/verify.ps1                Local repository verification
+docs/ADR-0001-stack.md            Stack architectural decision record
+docs/ADR-0002-platform-separation.md Why Core and Core.Windows are separated
+docs/ADR-0003-measurement-quality.md Why diagnosis requires valid measurement
+docs/AUDIT-1.1.0.md               1.1.0 audit report
+docs/proposals/                   Proposals for targeted null-safety
+CHANGELOG.md                      Release history
+build.sh                          Build + tests + publish script
 ```
 
 ---
 
-**Versão:** 1.2.0 · **Data:** 2026-08-23 · **Autor:** André Santo (forg3)
-**Licença:** MIT · **Site:** junkyardgoodies.app
+**Version:** 1.2.0 · **Author:** forg3  
+**License:** MIT (FOSS)  

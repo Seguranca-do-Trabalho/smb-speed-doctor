@@ -1,6 +1,6 @@
-﻿// SMB Speed Doctor CLI — subsistema console
-// Uso: smbdoctor-cli.exe scan [--json] [--quiet] [--path <share>]
-// Exit codes: 0 = ok, 1 = erro geral / warning, 2 = gargalo crítico (RMM)
+// SMB Speed Doctor CLI — console subsystem
+// Usage: smbdoctor-cli.exe scan [--json] [--quiet] [--path <share>]
+// Exit codes: 0 = ok, 1 = general error / warning, 2 = critical bottleneck (RMM)
 
 using System.Text.Json;
 using SmbSpeedDoctor.Core;
@@ -12,7 +12,7 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
-        // Flags conhecidas; qualquer outra é rejeitada com exit 1 e mensagem de uso.
+        // Known flags; any other flag is rejected with exit 1 and usage message.
         string[] knownFlags = { "--json", "--quiet", "--path", "--no-copy", "--save", "--compare", "--export", "--help", "-h" };
         var unknown = args
             .Where(a => a.StartsWith("-") && !knownFlags.Contains(a.Split('=')[0]))
@@ -20,15 +20,15 @@ internal static class Program
         if (unknown.Count > 0 || args.Contains("--help") || args.Contains("-h"))
         {
             Console.WriteLine(
-                "Uso: smbdoctor-cli scan [--json] [--quiet] [--path <share>] [--no-copy] [--save <arq>] [--compare <arq>] | fix --export <arquivo.ps1>" + Environment.NewLine +
-                "  --json             saída em JSON (integração RMM)" + Environment.NewLine +
-                "  --quiet            suprime saída de texto (só exit code)" + Environment.NewLine +
-                "  --path <share>     caminho UNC ou local alvo, ex.: \\\\servidor\\compartilhamento" + Environment.NewLine +
-                "  --no-copy          desativa cópia de teste real (scan rápido)" + Environment.NewLine +
-                "  --save <arquivo>   grava baseline do scan (para comparar depois)" + Environment.NewLine +
-                "  --compare <arq>    compara com baseline gravado (MELHOROU/PIOROU/ESTÁVEL)" + Environment.NewLine +
-                "  fix --export <ps1> gera script de correção (NÃO executa nada)" + Environment.NewLine +
-                "Exit codes: 0 = ok | 1 = warning/erro | 2 = gargalo crítico");
+                "Usage: smbdoctor-cli scan [--json] [--quiet] [--path <share>] [--no-copy] [--save <file>] [--compare <file>] | fix --export <file.ps1>" + Environment.NewLine +
+                "  --json             JSON output (RMM integration)" + Environment.NewLine +
+                "  --quiet            suppress text output (exit code only)" + Environment.NewLine +
+                "  --path <share>     target UNC or local path, e.g.: \\\\server\\share" + Environment.NewLine +
+                "  --no-copy          disable real test copy (quick scan)" + Environment.NewLine +
+                "  --save <file>      save scan baseline (for later comparison)" + Environment.NewLine +
+                "  --compare <file>   compare with saved baseline (IMPROVED/REGRESSED/STABLE)" + Environment.NewLine +
+                "  fix --export <ps1> generate remediation script (does NOT execute anything)" + Environment.NewLine +
+                "Exit codes: 0 = ok | 1 = warning/error | 2 = critical bottleneck");
             return unknown.Count > 0 ? 1 : 0;
         }
 
@@ -42,14 +42,14 @@ internal static class Program
 
         try
         {
-            // Item 1 — fix --export roda o diagnóstico e escreve um .ps1 de correção.
+            // fix --export runs diagnosis and writes a remediation .ps1 script.
             if (exportPath is not null)
             {
                 var scanFix = new WindowsScanner(sharePath: path, noCopy: noCopy).Collect();
                 var resultFix = new DiagnosisEngine().Diagnose(scanFix);
                 File.WriteAllText(exportPath, FixScriptBuilder.Build(resultFix));
-                Console.WriteLine($"Script de correção gerado (NÃO EXECUTADO): {exportPath}");
-                Console.WriteLine("Revise o conteúdo; as ações exigem elevação e rodada manual.");
+                Console.WriteLine($"Remediation script generated (NOT EXECUTED): {exportPath}");
+                Console.WriteLine("Review contents; actions require elevation and manual execution.");
                 return 0;
             }
 
@@ -58,18 +58,18 @@ internal static class Program
             var result = new DiagnosisEngine().Diagnose(scan);
             var code = ExitCodeMapper.For(result);
 
-            // Item 2 — baseline comparativo
+            // Comparative baseline
             if (savePath is not null)
             {
                 BaselineStore.Save(scan, savePath);
-                Console.WriteLine($"Baseline salvo: {savePath}");
+                Console.WriteLine($"Baseline saved: {savePath}");
             }
             if (comparePath is not null)
             {
                 if (!File.Exists(comparePath))
                 {
                     Console.WriteLine(JsonSerializer.Serialize(new
-                        { error = $"Baseline não encontrado: {comparePath}", code = 1 }));
+                        { error = $"Baseline not found: {comparePath}", code = 1 }));
                     return 1;
                 }
                 var baseline = BaselineStore.Load(comparePath);
@@ -92,7 +92,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            // Sem stack trace no JSON: logs RMM podem vazar; detalhe fica no stderr.
+            // No stack trace in JSON: RMM logs could leak; detail goes to stderr.
             Console.Error.WriteLine(ex.StackTrace);
             var error = new { error = ex.Message, code = 1 };
             Console.WriteLine(JsonSerializer.Serialize(error));
@@ -101,7 +101,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Aceita as duas formas do contrato: "--path=\\servidor\share" e "--path \\servidor\share".
+    /// Accepts both contract forms: "--path=\\server\share" and "--path \\server\share".
     /// </summary>
     private static string? ParsePath(string[] args)
     {
@@ -109,16 +109,16 @@ internal static class Program
         if (pathArg == null)
             return null;
 
-        // Forma "--path=valor": valor embutido no próprio argumento.
+        // Form "--path=value": value embedded in argument.
         if (pathArg.Contains('='))
             return pathArg.Split('=', 2)[1];
 
-        // Forma "--path valor": valor é o argumento seguinte.
+        // Form "--path value": value is next argument.
         return args.SkipWhile(a => a != "--path").Skip(1).FirstOrDefault();
     }
 
     /// <summary>
-    /// Extrai valor de flags com argumento (--save=arquivo ou --save arquivo).
+    /// Extracts flag value with argument (--save=file or --save file).
     /// </summary>
     private static string? ParseFlagValue(string[] args, string flag)
     {
@@ -140,11 +140,11 @@ internal static class Program
             confidence = r.ConfidencePct,
             summary = r.OneLineSummary,
 
-            // A MEDIÇÃO em si — o número que a ferramenta existe para produzir.
-            // Não era serializado: o `copyMethod.EstimatedThroughputMBps` é a
-            // ESTIMATIVA do robocopy (limitada por tetos), não a taxa medida, e
-            // era o único número de velocidade no JSON. Quem integrava via RMM
-            // não tinha como ver o resultado da cópia de teste.
+            // The MEASUREMENT itself — the number the tool exists to produce.
+            // Previously not serialized: `copyMethod.EstimatedThroughputMBps` is the
+            // robocopy ESTIMATE (bounded by ceilings), not the measured rate, and
+            // was the only speed number in JSON. RMM integrators could not see
+            // the test copy result.
             measuredThroughputMBps = Math.Round(scan.ObservedCopyThroughputBps / 1_000_000.0, 2),
             throughputQuality = scan.ThroughputQuality.ToString(),
             linkSpeedMbps = Math.Round(scan.LinkSpeedBps / 1_000_000.0, 0),
@@ -152,9 +152,9 @@ internal static class Program
             fileCountSampled = scan.FileCount,
             averageFileBytes = (long)scan.AverageFileBytes,
 
-            // Notas da coleta: resultado da sonda de cópia, quedas para
-            // aproximação, truncamento da amostragem de workload. Eram
-            // calculadas e descartadas.
+            // Collection notes: copy probe result, fallbacks to
+            // approximation, workload sampling truncation. Previously
+            // calculated and discarded.
             collectionNotes = notes ?? Array.Empty<string>(),
 
             findings = r.Findings.Select(f => new

@@ -1,28 +1,28 @@
-﻿# Criado por André Santo (forg3) | junkyardgoodies.app
-# Licença: MIT
+﻿# Created by forg3
+# License: MIT
 #
-# Item 5 — SMB Multichannel (cliente Windows)
-# Habilita/desabilita/mostra a configuração de multicanal SMB do cliente.
+# SMB Multichannel (Windows client)
+# Enables/disables/displays client SMB multichannel configuration.
 #
-# Multichannel SMB requer:
-#   1) Pelo menos 2 NICs ativas (mesma VLAN ou switch com LAG/RoCE)
-#   2) RSS habilitado em cada adaptador
-#   3) EnableMultiChannel = $true no SmbClientConfiguration
+# SMB Multichannel requires:
+#   1) At least 2 active NICs (same VLAN or switch with LAG/RoCE)
+#   2) RSS enabled on each adapter
+#   3) EnableMultiChannel = $true in SmbClientConfiguration
 #
-# Se apenas 1 NIC estiver disponível, o multichannel não trará ganho —
-# o script emite aviso AMARELO e aponta para o Item 6 (NIC tuning).
+# If only 1 NIC is available, multichannel will provide no gain —
+# the script emits a YELLOW warning and refers to NIC tuning.
 #
-# USO:
+# USAGE:
 #   .\Enable-SmbMultichannel.ps1 -Status
 #   .\Enable-SmbMultichannel.ps1 -Apply
 #   .\Enable-SmbMultichannel.ps1 -Apply -ComputerName SRV01
 #   .\Enable-SmbMultichannel.ps1 -Rollback
 #   .\Enable-SmbMultichannel.ps1 -WhatIf
 #
-# VALIDAÇÃO DO GANHO: rode antes e depois
-#   smbdoctor-cli.exe scan --save antes.json --path \\servidor\share
-#   (aplica este script)
-#   smbdoctor-cli.exe scan --compare antes.json --path \\servidor\share
+# GAIN VALIDATION: run before and after
+#   smbdoctor-cli.exe scan --save before.json --path \\server\share
+#   (apply this script)
+#   smbdoctor-cli.exe scan --compare before.json --path \\server\share
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -40,7 +40,7 @@ function Assert-Elevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw "Este comando exige elevação de administrador. Reabra o PowerShell como admin."
+        throw "This command requires administrator elevation. Reopen PowerShell as admin."
     }
 }
 
@@ -66,8 +66,7 @@ function Get-MultichannelStatus {
         Get-SmbMultichannelConnection -ErrorAction SilentlyContinue
     }
     
-    # @() forca array: com UMA NIC o retorno e escalar e $nics.Count sai VAZIO
-    # no Windows PowerShell 5.1 — o status imprimia "Apenas  NIC ativa detectada".
+    # @() forces array: with ONE NIC return is scalar and $nics.Count was empty in PS 5.1
     $nics = @(Get-ActiveNics -Computer $Computer)
 
     $rssStatus = @{}
@@ -119,23 +118,20 @@ if ($Status -or (-not $Apply -and -not $Rollback)) {
     $info = Get-MultichannelStatus -Computer $ComputerName
     
     Write-Host ""
-    Write-Host "Computador : $($info.ComputerName)" -ForegroundColor White
-    Write-Host "MultiChannel : $(if ($info.EnableMultiChannel) { 'HABILITADO' } else { 'DESABILITADO' })" -ForegroundColor White
+    Write-Host "Computer     : $($info.ComputerName)" -ForegroundColor White
+    Write-Host "MultiChannel : $(if ($info.EnableMultiChannel) { 'ENABLED' } else { 'DISABLED' })" -ForegroundColor White
     
     Write-Host ""
-    Write-Host "--- Adaptadores ativos ($($info.ActiveNicsCount)) ---" -ForegroundColor Yellow
+    Write-Host "--- Active adapters ($($info.ActiveNicsCount)) ---" -ForegroundColor Yellow
     foreach ($nic in $info.Nics) {
         $rss = $info.RssStatus[$nic]
-        $rssStr = if ($rss) { if ($rss.Enabled) { 'RSS ON' } else { 'RSS OFF' } } else { 'n/d' }
+        $rssStr = if ($rss) { if ($rss.Enabled) { 'RSS ON' } else { 'RSS OFF' } } else { 'N/A' }
         Write-Host "  [$nic] $rssStr"
     }
     
     Write-Host ""
-    Write-Host "--- Conexões SMB ativas ($($info.ActiveConnections)) ---" -ForegroundColor Yellow
+    Write-Host "--- Active SMB connections ($($info.ActiveConnections)) ---" -ForegroundColor Yellow
     if ($info.ActiveConnections -gt 0) {
-        Get-MultichannelStatus -Computer $ComputerName | ForEach-Object {
-            # connections info apenas exibida se existirem
-        }
         $conns = if ($ComputerName) {
             Get-SmbMultichannelConnection -ComputerName $ComputerName -ErrorAction SilentlyContinue
         } else {
@@ -143,26 +139,26 @@ if ($Status -or (-not $Apply -and -not $Rollback)) {
         }
         $conns | Format-Table -AutoSize
     } else {
-        Write-Host "  Nenhuma conexão multicanal ativa no momento." -ForegroundColor Gray
+        Write-Host "  No multichannel connections currently active." -ForegroundColor Gray
     }
     
-    # Aviso se apenas 1 NIC
+    # Warning if only 1 NIC
     if ($info.ActiveNicsCount -lt 2) {
         Write-Host "" -ForegroundColor Yellow
-        Write-Host "⚠ AVISO: Apenas $($info.ActiveNicsCount) NIC ativa detectada." -ForegroundColor Yellow
-        Write-Host "  Multichannel requer 2+ caminhos reais (NICs ou switch com LAG/RoCE)." -ForegroundColor Yellow
-        Write-Host "  Sem ganho esperado. Considere o Item 6 (NIC Tuning) para otimizar a interface existente." -ForegroundColor Yellow
+        Write-Host "WARNING: Only $($info.ActiveNicsCount) active NIC detected." -ForegroundColor Yellow
+        Write-Host "  Multichannel requires 2+ physical paths (NICs or switch with LAG/RoCE)." -ForegroundColor Yellow
+        Write-Host "  No gain expected. Consider NIC Tuning to optimize existing interface." -ForegroundColor Yellow
         Write-Host ""
     } elseif ($info.EnableMultiChannel) {
-        Write-Host "✅ Multichannel habilitado. Verifique conexões ativas acima." -ForegroundColor Green
+        Write-Host "Multichannel enabled. Check active connections above." -ForegroundColor Green
     } else {
-        Write-Host "ℹ Multichannel desabilitado. Use -Apply para habilitar." -ForegroundColor Gray
+        Write-Host "Multichannel disabled. Use -Apply to enable." -ForegroundColor Gray
     }
     
     return
 }
 
-# --- APPLY / ROLLBACK exigem elevação ---
+# --- APPLY / ROLLBACK require elevation ---
 Assert-Elevated
 
 if (-not (Test-Path $BackupDir)) { New-Item -ItemType Directory -Path $BackupDir | Out-Null }
@@ -170,49 +166,48 @@ if (-not (Test-Path $BackupDir)) { New-Item -ItemType Directory -Path $BackupDir
 if ($Apply) {
     $current = Get-SmbClientConfiguration
     
-    if ($PSCmdlet.ShouldProcess("SmbClientConfiguration", "Habilitar EnableMultiChannel")) {
-        # Backup do estado atual
+    if ($PSCmdlet.ShouldProcess("SmbClientConfiguration", "Enable EnableMultiChannel")) {
+        # Backup current state
         Save-Backup -value $current.EnableMultiChannel
         
         if (-not $current.EnableMultiChannel) {
-            # -Confirm:$false: sem isto o cmdlet abre prompt interativo e o
-            # script trava quando rodado por RMM ou sessao nao-interativa.
+            # -Confirm:$false: prevents interactive prompt hanging RMM sessions
             Set-SmbClientConfiguration -EnableMultiChannel $true -ErrorAction Stop -Confirm:$false
-            Write-Host "✅ EnableMultiChannel definido como $true" -ForegroundColor Green
+            Write-Host "EnableMultiChannel set to $true" -ForegroundColor Green
         } else {
-            Write-Host "ℹ EnableMultiChannel já estava $true — nenhuma alteração necessária." -ForegroundColor Cyan
+            Write-Host "EnableMultiChannel was already $true — no changes needed." -ForegroundColor Cyan
         }
         
-        # Verificação pós-aplicação
+        # Post-application verification
         $verify = Get-SmbClientConfiguration
-        Write-Host "   Estado confirmado: EnableMultiChannel = $($verify.EnableMultiChannel)" -ForegroundColor Gray
+        Write-Host "   Confirmed state: EnableMultiChannel = $($verify.EnableMultiChannel)" -ForegroundColor Gray
     }
     
-    # Aviso de viabilidade — @() pelo mesmo motivo do Get-Status
+    # Feasibility check
     $nics = @(Get-ActiveNics)
     if ($nics.Count -lt 2) {
         Write-Host "" -ForegroundColor Yellow
-        Write-Host "⚠ AVISO: Apenas $($nics.Count) NIC ativa detectada." -ForegroundColor Yellow
-        Write-Host "  Multichannel requer 2+ caminhos reais (NICs ou switch com LAG/RoCE)." -ForegroundColor Yellow
-        Write-Host "  Configure RSS e considere o Item 6 (NIC Tuning) para melhor aproveitamento." -ForegroundColor Yellow
+        Write-Host "WARNING: Only $($nics.Count) active NIC detected." -ForegroundColor Yellow
+        Write-Host "  Multichannel requires 2+ physical paths (NICs or switch with LAG/RoCE)." -ForegroundColor Yellow
+        Write-Host "  Configure RSS and consider NIC Tuning for optimal utilization." -ForegroundColor Yellow
         Write-Host ""
     } else {
-        # Verificar RSS em cada NIC
+        # Check RSS on each NIC
         $rssOff = @()
         foreach ($nic in $nics) {
             try {
                 $rss = Get-NetAdapterRss -Name $nic.Name -ErrorAction Stop
                 if (-not $rss.Enabled) { $rssOff += $nic.Name }
             } catch {
-                $rssOff += "$($nic.Name) (erro: $_)"
+                $rssOff += "$($nic.Name) (error: $_)"
             }
         }
         if ($rssOff.Count -gt 0) {
-            Write-Host "⚠ AVISO: RSS desabilitado/não encontrado em: $($rssOff -join ', ')" -ForegroundColor Yellow
-            Write-Host "  Habilite RSS para que o multichannel funcione adequadamente." -ForegroundColor Yellow
+            Write-Host "WARNING: RSS disabled/not found on: $($rssOff -join ', ')" -ForegroundColor Yellow
+            Write-Host "  Enable RSS for multichannel to function properly." -ForegroundColor Yellow
             Write-Host ""
         } else {
-            Write-Host "✅ Multichannel habilitado com sucesso. $($nics.Count) NIC(s) ativa(s) detectada(s)." -ForegroundColor Green
+            Write-Host "Multichannel enabled successfully. $($nics.Count) active NIC(s) detected." -ForegroundColor Green
         }
     }
 }
@@ -220,13 +215,12 @@ if ($Apply) {
 if ($Rollback) {
     $backup = Load-Backup
     if ($backup -eq $null) {
-        Write-Host "❌ Nenhum backup encontrado em $BackupFile" -ForegroundColor Red
+        Write-Host "No backup found in $BackupFile" -ForegroundColor Red
         exit 1
     }
     
-    if ($PSCmdlet.ShouldProcess("SmbClientConfiguration", "Reverter EnableMultiChannel para estado anterior")) {
-        # -Confirm:$false — o rollback nao pode travar num prompt.
+    if ($PSCmdlet.ShouldProcess("SmbClientConfiguration", "Revert EnableMultiChannel to previous state")) {
         Set-SmbClientConfiguration -EnableMultiChannel $backup -ErrorAction Stop -Confirm:$false
-        Write-Host "✅ EnableMultiChannel revertido para $backup (backup de $($backup.Timestamp))" -ForegroundColor Green
+        Write-Host "EnableMultiChannel reverted to $backup (backup from $($backup.Timestamp))" -ForegroundColor Green
     }
 }

@@ -1,17 +1,6 @@
 name: CI
 
-# Roda a cada push e pull request. O objetivo nao e so "testes passam": cada
-# job abaixo trava a volta de um defeito que ja chegou ao repositorio.
-#
-# NOTA DE COTA (agosto/2026): a franquia mensal de Actions da organizacao ja foi
-# consumida, entao os jobs falham no arranque com "The job was not started
-# because recent account payments have failed or your spending limit needs to be
-# increased" — nenhum passo chega a rodar. Isso se resolve sozinho na virada do
-# mes, quando a franquia renova; os gatilhos ficam ligados de proposito para que
-# o CI volte a funcionar sem ninguem precisar mexer aqui.
-#
-# Enquanto isso, `scripts/verify.ps1` roda LOCALMENTE exatamente as mesmas
-# checagens destes jobs.
+# Runs on every push and pull request.
 on:
   push:
     branches: [master]
@@ -23,13 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  build-e-testes:
-    name: Build + testes (Windows)
+  build-and-test:
+    name: Build + tests (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar .NET 8
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -37,77 +26,57 @@ jobs:
       - name: Restore
         run: dotnet restore SmbSpeedDoctor.sln
 
-      # TreatWarningsAsErrors trava o estado de ZERO avisos.
-      # O repo ja conviveu com 52 avisos (42 CA1416 de WMI num projeto marcado
-      # como multiplataforma); volume assim anestesia e esconde aviso novo —
-      # os 10 de nulabilidade estavam encobertos por eles.
-      - name: Build (avisos = erro)
+      # TreatWarningsAsErrors enforces ZERO warnings
+      - name: Build (warnings = error)
         run: dotnet build SmbSpeedDoctor.sln -c Release --no-restore -warnaserror
 
-      - name: Testes
+      - name: Tests
         run: dotnet test SmbSpeedDoctor.sln -c Release --no-build --verbosity normal
 
-  scripts-powershell:
-    name: Scripts em PowerShell 5.1
+  powershell-scripts:
+    name: Scripts in PowerShell 5.1
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      # 5 dos 6 scripts NAO COMPILAVAM no Windows PowerShell 5.1 — o shell
-      # padrao do Windows 10/11 e o usado por RMM — enquanto compilavam no
-      # PowerShell 7. Uma verificacao feita so no 7 nao pega isso.
-      - name: Parse no Windows PowerShell 5.1
+      - name: Parse in Windows PowerShell 5.1
         shell: powershell
         run: |
-          $falhas = 0
+          $failCount = 0
           Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
-            $erros = $null
+            $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile(
-              $_.FullName, [ref]$null, [ref]$erros)
-            if ($erros -and $erros.Count) {
-              Write-Host "FALHA  $($_.Name): $($erros[0].Message)"
-              $falhas++
-            } else { Write-Host "OK     $($_.Name)" }
+              $_.FullName, [ref]$null, [ref]$errors)
+            if ($errors -and $errors.Count) {
+              Write-Host "FAIL  $($_.Name): $($errors[0].Message)"
+              $failCount++
+            } else { Write-Host "OK    $($_.Name)" }
           }
-          if ($falhas) { throw "$falhas script(s) nao compilam no PowerShell 5.1" }
+          if ($failCount) { throw "$failCount script(s) do not compile in PowerShell 5.1" }
 
-      # Causa raiz daquelas falhas: arquivos UTF-8 SEM BOM. O 5.1 assume ANSI
-      # nesse caso, os acentos viram mojibake e a corrupcao quebra terminadores
-      # de string. O BOM e o que mantem os scripts validos nos dois shells.
-      - name: Todo .ps1 precisa de BOM UTF-8
+      - name: All .ps1 files require UTF-8 BOM
         shell: powershell
         run: |
-          $semBom = @()
+          $missingBom = @()
           Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
             $b = [System.IO.File]::ReadAllBytes($_.FullName)
             if ($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF) {
-              $semBom += $_.Name
+              $missingBom += $_.Name
             }
           }
-          if ($semBom.Count) {
-            throw "sem BOM UTF-8 (quebra no PowerShell 5.1): $($semBom -join ', ')"
+          if ($missingBom.Count) {
+            throw "missing UTF-8 BOM (breaks in PowerShell 5.1): $($missingBom -join ', ')"
           }
-          Write-Host "todos os .ps1 com BOM UTF-8"
+          Write-Host "all .ps1 files have UTF-8 BOM"
 
-      # NAO ha aqui uma busca textual por sintaxe exclusiva do PS7 (ternario
-      # '? :', '??', '?.'): seria redundante, porque essas construcoes sao erro
-      # de sintaxe no 5.1 e o parse acima ja as reprova — foi assim que o
-      # ternario em Optimize-NicTuning.ps1 apareceu. A busca textual ainda
-      # casava com a documentacao que menciona os operadores, gerando falso
-      # positivo. O parser decide.
-
-  segredos:
-    name: Varredura de segredos
+  secrets:
+    name: Secret scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # historico inteiro, nao so o ultimo commit
+          fetch-depth: 0   # entire history, not just last commit
 
-      # Uma senha em texto plano ja chegou ao repositorio — dentro do proprio
-      # parecer de auditoria que afirmava nao haver segredos. A varredura
-      # original cobria so src/ e tests/; docs/ ficou de fora, e era ali.
-      # Esta cobre o repositorio TODO e o historico.
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:

@@ -1,11 +1,13 @@
+// Created by forg3
+// License: MIT
+//
+// Tests for profiled robocopy generator.
+
 using Xunit;
 using SmbSpeedDoctor.Core;
 using SmbSpeedDoctor.Cli;
 
 namespace SmbSpeedDoctor.Tests;
-
-// Criado por André Santo (forg3) | junkyardgoodies.app
-// Item 9 — testes do gerador robocopy profiled.
 
 public class RobocopyBuilderTests
 {
@@ -42,7 +44,7 @@ public class RobocopyBuilderTests
                new CopyMethodProfile("x", "y"));
 
     [Fact]
-    public void Arquivos_grandes_poucos_usa_J_sem_MT()
+    public void Large_files_few_uses_J_without_MT()
     {
         var plan = RobocopyBuilder.Build(Scan(fileCount: 10), Diag(null!));
 
@@ -52,38 +54,38 @@ public class RobocopyBuilderTests
     }
 
     [Fact]
-    public void Muitos_arquivos_pequenos_usa_MT_paralelo()
+    public void Many_small_files_uses_parallel_MT()
     {
         var plan = RobocopyBuilder.Build(
             Scan(fileCount: 50_000, avgBytes: 48 * 1024), Diag(null!));
 
         Assert.Contains("/MT:", plan.MethodName);
-        Assert.Contains("paraleliza seeks", plan.Rationale);
-        Assert.True(plan.EstimatedThroughputMBps > 0); // estimativa populada
+        Assert.Contains("parallelizes seeks", plan.Rationale);
+        Assert.True(plan.EstimatedThroughputMBps > 0); // populated estimate
     }
 
     [Fact]
-    public void Link_instavel_adiciona_ZB()
+    public void Unstable_link_adds_ZB()
     {
         var loss = RobocopyBuilder.Build(Scan(loss: 0.02), Diag(null!));
         Assert.Contains("/ZB", loss.MethodName);
-        Assert.Contains("/ZB retomável", loss.Rationale);
+        Assert.Contains("/ZB restartable", loss.Rationale);
 
         var lat = RobocopyBuilder.Build(Scan(latency: 80), Diag(null!));
         Assert.Contains("/ZB", lat.MethodName);
     }
 
     [Fact]
-    public void Signing_e_criptografia_aparecem_no_rationale()
+    public void Signing_and_encryption_appear_in_rationale()
     {
         var plan = RobocopyBuilder.Build(Scan(signing: true), Diag(null!));
-        Assert.Contains("assinatura SMB ativa", plan.Rationale);
+        Assert.Contains("SMB signing active", plan.Rationale);
     }
 
     [Fact]
-    public void Estimativa_respeita_o_teto_da_copia_observada()
+    public void Estimate_respects_observed_copy_ceiling()
     {
-        // Cópia observada de ~38 MB/s deve limitar a estimativa mesmo com link de 2,5G
+        // Observed copy of ~38 MB/s must limit estimate even with 2.5G link
         var plan = RobocopyBuilder.Build(Scan(observed: 38_000_000), Diag(null!));
         Assert.InRange(plan.EstimatedThroughputMBps, 30.0, 40.0);
     }

@@ -2,7 +2,7 @@
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="SmbSpeedDoctor.Cli.app"/>
 
-  <!-- UAC: console/RMM roda como o usuário chamador; sem elevação implícita. -->
+  <!-- UAC: console/RMM runs as caller user; no implicit elevation. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
@@ -11,7 +11,7 @@
     </security>
   </trustInfo>
 
-  <!-- Compatibilidade: Windows 10 e Windows 11 -->
+  <!-- Compatibility: Windows 10 and Windows 11 -->
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
       <!-- Windows 10 / Windows 11 -->

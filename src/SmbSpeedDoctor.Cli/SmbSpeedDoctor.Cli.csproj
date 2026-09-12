@@ -1,15 +1,19 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- Depende da coleta Windows (WMI); o publish já era win-x64 apenas. -->
+    <!-- Depends on Windows collection (WMI); publish is win-x64. -->
     <TargetFramework>net8.0-windows</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>SmbSpeedDoctor.Cli</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Authors>forg3</Authors>
+    <Company>forg3</Company>
+    <Description>SMB Speed Doctor - CLI tool for SMB bottleneck diagnosis and remediation</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,32 +1,26 @@
-﻿# SMB Speed Doctor — wrapper para RMM (Action1, NinjaOne, Datto RMM, etc.)
-# Licença: MIT
-# Criado por André Santo (forg3) | junkyardgoodies.app
+﻿# SMB Speed Doctor — wrapper for RMM (Action1, NinjaOne, Datto RMM, etc.)
+# License: MIT
+# Created by forg3
 #
-# Fluxo típico:
-#   1) Implante o binário smbdoctor-cli.exe via deployment de software do RMM.
-#   2) Execute este script (PowerShell) em cada endpoint gerenciado.
-#   3) Leia a saída JSON no log do RMM; exit code indica gargalo (0=ok, 2=critical).
+# Typical workflow:
+#   1) Deploy smbdoctor-cli.exe binary via RMM software deployment.
+#   2) Run this script (PowerShell) on each managed endpoint.
+#   3) Read JSON output in RMM log; exit code indicates bottleneck (0=ok, 2=critical).
 #
-# Nota: este wrapper é código público/MIT. O produto é o binário assinado.
-#
-# Correção: as linhas de comentário deste arquivo usavam '@rem', que é sintaxe
-# de arquivo .bat. Em PowerShell isso é erro de parse — o wrapper falhava na
-# primeira linha, antes de qualquer lógica, e a integração RMM nunca rodou.
+# Note: this wrapper is public/MIT code.
 
 [CmdletBinding()]
 param(
-    # Compartilhamento a medir. Sem ele NÃO há cópia de teste e, portanto, não
-    # há medição de throughput: o diagnóstico não conclui sobre assinatura,
-    # multichannel, disco ou CPU. Para uso em RMM, aponte para um share real.
+    # Share to measure. Without it there is NO test copy and therefore no
+    # throughput measurement: diagnosis cannot conclude about signing,
+    # multichannel, disk, or CPU. For RMM usage, point to a real share.
     [Parameter(Mandatory = $false)]
     [string]$Path
 )
 
 $ErrorActionPreference = 'Stop'
 
-# O binário é publicado win-x64. Procura nos dois Program Files e no PATH, em
-# vez de fixar um só caminho — instaladores divergem e o custo de errar aqui é
-# o wrapper inteiro não rodar.
+# Binary is published win-x64. Search both Program Files and PATH
 $candidates = @(
     (Join-Path ${env:ProgramFiles} 'SMB Speed Doctor\smbdoctor-cli.exe'),
     (Join-Path ${env:ProgramFiles(x86)} 'SMB Speed Doctor\smbdoctor-cli.exe')
@@ -39,7 +33,7 @@ if (-not $exe) {
 }
 
 if (-not $exe) {
-    Write-Host '{"error":"binario nao instalado","searched":["%ProgramFiles%","%ProgramFiles(x86)%","PATH"]}'
+    Write-Host '{"error":"binary not installed","searched":["%ProgramFiles%","%ProgramFiles(x86)%","PATH"]}'
     exit 1
 }
 
@@ -53,15 +47,14 @@ try {
     $json = $out | ConvertFrom-Json
 }
 catch {
-    # Saída não-JSON significa falha antes do diagnóstico. Propaga como erro em
-    # vez de deixar o ConvertFrom-Json estourar sem contexto no log do RMM.
+    # Non-JSON output indicates pre-diagnosis failure. Propagate as error
     $raw = ($out | Out-String).Trim()
-    Write-Host (@{ error = 'saida nao-JSON do binario'; raw = $raw } | ConvertTo-Json -Compress)
+    Write-Host (@{ error = 'non-JSON output from binary'; raw = $raw } | ConvertTo-Json -Compress)
     exit 1
 }
 
 Write-Host ($json | ConvertTo-Json -Depth 10)
 
-# Prefere o exit code do próprio binário; cai para o do JSON se indisponível.
+# Prefer binary exit code; fall back to JSON if unavailable.
 if ($null -ne $exitFromExe) { exit $exitFromExe }
 exit $json.exitCode

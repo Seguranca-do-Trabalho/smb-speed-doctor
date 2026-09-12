@@ -1,17 +1,17 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
+// Author: forg3 | junkyardgoodies.app
 using SmbSpeedDoctor.Core;
 
 namespace SmbSpeedDoctor.Core;
 
 /// <summary>
-/// Motor de correlação: cruza as coleções de todas as camadas e decide qual é
-/// o gargalo dominante. Regras derivadas da experiência de campo (24H2/25H2,
-/// SMB signing, HDDs locais, workload de arquivos pequenos).
+/// Correlation engine: cross-references data from all layers and identifies the
+/// dominant bottleneck. Rules derived from field experience (24H2/25H2,
+/// SMB signing, local HDDs, small file workloads).
 /// </summary>
 public sealed class DiagnosisEngine
 {
     private const double DiskThroughputHddMbs = 90;   // ~90 MB/s
-    private const double DiskThroughputSsdMbs = 500;  // SSD típico
+    private const double DiskThroughputSsdMbs = 500;  // typical SSD
     private const long MinFileForSmallWorkloadBytes = 64 * 1024;
     private const long SmallWorkloadFileCount = 10_000;
 
@@ -20,20 +20,20 @@ public sealed class DiagnosisEngine
         var findings = new List<Finding>();
         var scores = new Dictionary<Bottleneck, double>();
 
-        // Toda regra que conclui a partir de throughput exige medição válida.
-        // Sem isso, "não medi" e "medi e deu zero" seriam indistinguíveis — foi
-        // assim que uma rede ociosa virava "assinatura SMB crítica".
+        // Every rule concluding from throughput requires a valid measurement.
+        // Without it, "did not measure" and "measured and got zero" would be indistinguishable —
+        // which is how an idle network was previously flagged as "SMB signing critical".
         bool usableThroughput = d.HasUsableThroughput;
         if (!usableThroughput)
         {
             findings.Add(new Finding("Scan", "ThroughputQuality", "unavailable",
-                "cópia de teste não executada — sem medição de throughput, o diagnóstico " +
-                "não conclui sobre assinatura, multichannel, disco, CPU ou uso do enlace " +
-                "(use --path <compartilhamento> para medir)",
+                "test copy not executed — without throughput measurement, diagnosis " +
+                "cannot conclude on signing, multichannel, disk, CPU, or link utilization " +
+                "(use --path <share> to measure)",
                 Severity.Ok, 0.0));
         }
 
-        // --- Disco local (verificado PRIMEIRO para priorização) ---
+        // --- Local disk (checked FIRST for prioritization) ---
         double targetLimitBps = TargetDiskLimit(d);
         double sourceLimitBps = SourceDiskLimit(d);
         bool diskIssue = false;
@@ -42,7 +42,7 @@ public sealed class DiagnosisEngine
         if (usableThroughput && d.TargetDiskBusyRatio >= 0.9 && d.ObservedCopyThroughputBps < targetLimitBps * 0.95)
         {
             findings.Add(new Finding("DiskTarget", "BusyRatio", $"{d.TargetDiskBusyRatio:P0}",
-                $"disco destino saturado (limite estimado {targetLimitBps / 1_000_000:F0} MB/s)",
+                $"target disk saturated (estimated limit {targetLimitBps / 1_000_000:F0} MB/s)",
                 Severity.Critical, 8.0));
             scores[Bottleneck.DiskTarget] = 8.0;
             diskIssue = true;
@@ -50,48 +50,48 @@ public sealed class DiagnosisEngine
         if (usableThroughput && d.SourceDiskBusyRatio >= 0.9 && d.ObservedCopyThroughputBps < sourceLimitBps * 0.95)
         {
             findings.Add(new Finding("DiskSource", "BusyRatio", $"{d.SourceDiskBusyRatio:P0}",
-                $"disco origem saturado", Severity.Critical, 6.0));
+                "source disk saturated", Severity.Critical, 6.0));
             scores[Bottleneck.DiskSource] = 6.0;
             diskIssue = true;
         }
 
-        // --- Carga ---
+        // --- Workload ---
         if (usableThroughput && d.AverageFileBytes < MinFileForSmallWorkloadBytes && d.FileCount >= SmallWorkloadFileCount)
         {
             double expectedThroughput = EstimateSmallFileThroughput(d);
             if (d.ObservedCopyThroughputBps > expectedThroughput * 0.8)
             {
                 findings.Add(new Finding("Workload", "AvgFileSize", $"{BytesToString((long)d.AverageFileBytes)}",
-                    $"carga de {d.FileCount} arquivos pequenos — throughput dentro da expectativa",
+                    $"workload of {d.FileCount} small files — throughput within expectations",
                     Severity.Warning, 0.0));
                 scores[Bottleneck.Workload] = 5.0;
                 workloadIssue = true;
             }
         }
 
-        // --- Rede (perda de pacote sempre supera SMB quando crítica) ---
+        // --- Network (packet loss always outranks SMB when critical) ---
         if (d.PacketLossRatio >= 0.01)
         {
             double penalty = d.PacketLossRatio >= 0.03 ? 12.0 : 6.0;
             findings.Add(new Finding("Network", "PacketLossRatio",
-                $"{d.PacketLossRatio:P0}", "Perda de pacotes degradando TCP/SMB",
+                $"{d.PacketLossRatio:P0}", "Packet loss degrading TCP/SMB",
                 d.PacketLossRatio >= 0.03 ? Severity.Critical : Severity.Warning,
                 penalty));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), penalty);
         }
-        // Enlace negociado baixo (<= 100 Mbit) em rede moderna: cabo Cat5/Cat5e velho,
-        // porta switch 10/100 ou negociação duplex ruim. O link É o gargalo.
+        // Negotiated low link (<= 100 Mbit) on modern network: old Cat5/Cat5e cable,
+        // 10/100 switch port, or bad duplex negotiation. The link IS the bottleneck.
         else if (d.LinkSpeedBps > 0 && d.LinkSpeedBps <= 100_000_000)
         {
             findings.Add(new Finding("Network", "NegotiatedLinkSpeed",
                 FmtLink(d.LinkSpeedBps),
-                "enlace negociado muito abaixo do padrão moderno — verifique cabo (Cat6+) e porta do switch",
+                "negotiated link speed well below modern standards — check cable (Cat6+) and switch port",
                 Severity.Warning, 8.0));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), 8.0);
         }
-        // LinkUtilization: só pontua com medição de link crível (>= 10 Mbit/s e <= 400 Gbit/s)
-        // E com tráfego real observado (rede ociosa não é gargalo).
-        // Links virtuais reportam 100+ Gb/s nominais; sem NIC física confiável, sem peso.
+        // LinkUtilization: only scores with credible link measurement (>= 10 Mbit/s and <= 400 Gbit/s)
+        // AND with observed real traffic (idle network is not a bottleneck).
+        // Virtual links report 100+ Gb/s nominal; without reliable physical NIC, no weight.
         bool linkCredible = d.LinkSpeedBps >= 10_000_000 && d.LinkSpeedBps <= 400_000_000_000;
         bool hasTraffic = usableThroughput
             && (d.RawThroughputBps > 1_000_000 || d.ObservedCopyThroughputBps > 1_000_000);
@@ -99,7 +99,7 @@ public sealed class DiagnosisEngine
         {
             findings.Add(new Finding("Network", "LinkSpeed",
                 FmtLink(d.LinkSpeedBps),
-                "velocidade de link fora da faixa confiável — provável adaptador virtual",
+                "link speed outside credible range — likely a virtual adapter",
                 Severity.Warning, 0));
         }
         if (linkCredible && hasTraffic && d.RawThroughputBps / d.LinkSpeedBps < 0.3
@@ -107,30 +107,29 @@ public sealed class DiagnosisEngine
         {
             findings.Add(new Finding("Network", "LinkUtilization",
                 $"{d.ObservedCopyThroughputBps / Math.Max(1, d.LinkSpeedBps):P1}",
-                $"throughput observado muito abaixo da capacidade link",
+                "observed throughput well below link capacity",
                 Severity.Warning, 3.0));
             scores[Bottleneck.Network] = Math.Max(scores.GetValueOrDefault(Bottleneck.Network), 3.0);
         }
 
-        // --- SMB (só considera se não há disco/workload comprometendo) ---
+        // --- SMB (only evaluated if disk/workload are not compromised) ---
         bool signed = d.SigningEnabled;
         bool encrypted = d.EncryptionEnabled;
         string dialect = d.NegotiatedDialect;
 
-        // Dialeto não determinado NÃO é dialeto bom: antes caía no `_ =>` e era
-        // reportado como "dialeto moderno", transformando dado ausente em
-        // parecer positivo (fail-open).
+        // Undetermined dialect is NOT a good dialect: previously fell through `_ =>`
+        // and was reported as "modern dialect", turning missing data into a positive verdict (fail-open).
         bool dialectKnown = !string.IsNullOrWhiteSpace(dialect) && char.IsDigit(dialect[0]);
 
         findings.Add(new Finding("SMB", "NegotiatedDialect",
-            dialectKnown ? dialect : "não determinado",
+            dialectKnown ? dialect : "undetermined",
             !dialectKnown
-                ? "dialeto não determinado — sem base para classificar o protocolo"
+                ? "undetermined dialect — insufficient basis to classify protocol"
                 : dialect switch
                 {
-                    "1.0" or "2.0" => "dialeto legado, alto overhead",
-                    "2.1" => "dialeto legado, overhead moderado",
-                    _ => "dialeto moderno"
+                    "1.0" or "2.0" => "legacy dialect, high overhead",
+                    "2.1" => "legacy dialect, moderate overhead",
+                    _ => "modern dialect"
                 },
             !dialectKnown ? Severity.Ok
                 : dialect.StartsWith("1.") || dialect.StartsWith("2.0") ? Severity.Critical
@@ -141,32 +140,31 @@ public sealed class DiagnosisEngine
                 : dialect.StartsWith("2.0") ? 6.0
                 : 0));
 
-        // Protocolo legado é conclusão do próprio dialeto — independe de medição.
+        // Legacy protocol is concluded from the dialect itself — independent of measurement.
         if (dialectKnown && (dialect.StartsWith("1.") || dialect.StartsWith("2.0")))
             scores[Bottleneck.Protocol] = 10.0;
 
         if (encrypted)
         {
             findings.Add(new Finding("SMB", "EncryptionEnabled", "true",
-                "criptografia SMB ativa — custo de CPU em cada I/O", Severity.Critical, 9.0));
+                "SMB encryption active — CPU overhead on every I/O", Severity.Critical, 9.0));
             scores[Bottleneck.SmbEncryption] = 9.0;
         }
         else if (usableThroughput && signed && !diskIssue && !workloadIssue)
         {
-            // Só avalia assinatura se houve MEDIÇÃO e não houver disco ou
-            // workload comprometendo. Recomendar desligar assinatura é um
-            // downgrade de segurança: exige evidência medida, nunca estimativa
-            // de rede ociosa.
+            // Only evaluate signing if there was a MEASUREMENT and neither disk nor
+            // workload is bottlenecked. Recommending disabling signing is a
+            // security downgrade: requires measured evidence, never an idle network estimate.
             double efficiency = d.LinkSpeedBps > 0
                 ? (d.ObservedCopyThroughputBps * 8.0) / d.LinkSpeedBps
                 : 1.0;
-            // Só aponta SMB como gargalo se eficiência for baixa (<50%)
+            // Only flag SMB as bottleneck if efficiency is low (<50%)
             double smbScore = efficiency < 0.15 ? 9.0 : efficiency < 0.5 ? 6.0 : 0.0;
-            // Score zero não entra no dicionário: evita dominância indevida em cenários saudáveis.
+            // Zero score is not inserted into dictionary: avoids unwarranted dominance in healthy profiles.
             if (smbScore > 0)
             {
                 findings.Add(new Finding("SMB", "SigningEnabled", "true",
-                    "assinatura SMB ativa — overhead de hash em cada pacote",
+                    "SMB signing active — hash overhead on every packet",
                     smbScore >= 7.0 ? Severity.Critical : smbScore >= 4.0 ? Severity.Warning : Severity.Ok,
                     smbScore));
                 scores[Bottleneck.SmbSigning] = Math.Max(scores.GetValueOrDefault(Bottleneck.SmbSigning), smbScore);
@@ -175,17 +173,16 @@ public sealed class DiagnosisEngine
 
         if (usableThroughput && !d.Multichannel && d.LinkSpeedBps >= 1_000_000_000 && d.ActiveChannels == 1)
         {
-            // Só penaliza multichannel se a eficiência geral já for baixa
+            // Only penalize multichannel if overall efficiency is already low
             double efficiency = d.LinkSpeedBps > 0
                 ? (d.ObservedCopyThroughputBps * 8.0) / d.LinkSpeedBps
                 : 1.0;
             if (efficiency < 0.5 && !diskIssue && !workloadIssue)
             {
                 findings.Add(new Finding("SMB", "Multichannel", "disabled",
-                    "multichannel desabilitado em link >= 1 Gb/s", Severity.Warning, 3.0));
-                // Balde PRÓPRIO: antes somava no score de SmbSigning, então o
-                // relatório listava multichannel e culpava a assinatura — com
-                // remediação de desligar signing para um problema que não era dele.
+                    "multichannel disabled on link >= 1 Gb/s", Severity.Warning, 3.0));
+                // OWN bucket: previously summed into SmbSigning score, so reports
+                // listed multichannel while blaming signing — remediating by disabling signing for an unrelated issue.
                 scores[Bottleneck.SmbMultichannel] =
                     Math.Max(scores.GetValueOrDefault(Bottleneck.SmbMultichannel), 3.0);
             }
@@ -195,26 +192,26 @@ public sealed class DiagnosisEngine
         if (usableThroughput && d.CpuUtilization > 0.85 && d.ObservedCopyThroughputBps * 8.0 < d.LinkSpeedBps * 0.1)
         {
             findings.Add(new Finding("CPU", "Utilization", $"{d.CpuUtilization:P0}",
-                "CPU alto durante cópia SMB", Severity.Warning, 4.0));
+                "high CPU during SMB copy", Severity.Warning, 4.0));
             scores[Bottleneck.Cpu] = 4.0;
         }
 
-        // Antivírus
+        // Antivirus
         if (d.AvFilterOnSharePath)
         {
             findings.Add(new Finding("Antivirus", "FilterOnSharePath", "true",
-                "filtro de antivírus no caminho do compartilhamento SMB", Severity.Warning, 5.0));
+                "antivirus filter on SMB share path", Severity.Warning, 5.0));
             scores[Bottleneck.Antivirus] = 5.0;
         }
 
-        // --- Decisão ---
+        // --- Decision ---
         if (scores.Count == 0)
             return HealthyResult(findings, usableThroughput);
 
         var dominant = scores.OrderByDescending(kv => kv.Value).First().Key;
         double confidence = Math.Clamp(scores.Values.Max() / (scores.Values.Max() + 2.0) * 100, 40, 99);
-        // Sem medição de throughput o que sobrou veio de sinais diretos; ainda
-        // assim o quadro é parcial, e a confiança não pode alegar o mesmo peso.
+        // Without throughput measurement, remaining signals are direct;
+        // nonetheless the picture is partial and confidence cannot claim full weight.
         if (!usableThroughput) confidence = Math.Min(confidence, 70);
 
         Severity severity = dominant switch
@@ -253,12 +250,12 @@ public sealed class DiagnosisEngine
     private static DiagnosisResult HealthyResult(IReadOnlyList<Finding> findings, bool usableThroughput)
         => new(
             usableThroughput
-                ? "Scan concluído: sem gargalo dominante identificado — throughput dentro da capacidade esperada."
-                : "Scan parcial: nenhum problema detectado nos sinais diretos, mas a cópia de teste "
-                  + "não foi executada — nada foi verificado sobre throughput. Use --path <compartilhamento>.",
+                ? "Scan completed: no dominant bottleneck identified — throughput within expected capacity."
+                : "Partial scan: no issues detected in direct signals, but test copy was "
+                  + "not executed — nothing was verified about throughput. Use --path <share>.",
             Bottleneck.None,
             Severity.Ok,
-            // Ausência de evidência não é evidência de ausência.
+            // Absence of evidence is not evidence of absence.
             usableThroughput ? 95.0 : 55.0,
             findings,
             null,
@@ -280,7 +277,7 @@ public sealed class DiagnosisEngine
 
     private static double EstimateSmallFileThroughput(ScanData d)
     {
-        // Aproximação: overhead por arquivo ~500 µs (TCP+disk seek+SMB negotiation)
+        // Approximation: overhead per file ~500 µs (TCP+disk seek+SMB negotiation)
         double overheadPerFile = 500e-6;
         double effectiveBytePerSec = (1.0 / overheadPerFile) * d.AverageFileBytes * 0.5;
         return Math.Min(effectiveBytePerSec, DiskThroughputHddMbs * 1_000_000);
@@ -292,40 +289,40 @@ public sealed class DiagnosisEngine
         int count = d.FileCount;
         if (largeFiles || count < 100)
             return new CopyMethodProfile("robocopy /J /ZB",
-                $"cópias não-buffered (robocopy /J /ZB) para {count} arquivo(s) de tamanho médio/grande");
+                $"unbuffered copy (robocopy /J /ZB) for {count} medium/large file(s)");
         if (count >= SmallWorkloadFileCount)
-            return new CopyMethodProfile("robocopy paralelo (/MT)",
-                $"carga de {count} arquivos pequenos — paralelismo maximiza seek");
+            return new CopyMethodProfile("parallel robocopy (/MT)",
+                $"workload of {count} small files — parallelism maximizes seek");
         return new CopyMethodProfile("robocopy /ZB /MT:8",
-            "mistura buffered/unbuffered com 8 threads para workload misto");
+            "mix of buffered/unbuffered with 8 threads for mixed workload");
     }
 
     private static string BuildSummary(Bottleneck dominant, ScanData d)
         => dominant switch
         {
             Bottleneck.SmbSigning =>
-                $"Rede é {FmtLink(d.LinkSpeedBps)}, mas cópia SMB cai para {FmtThroughput(d.ObservedCopyThroughputBps)}. " +
-                $"O gargalo dominante é a assinatura SMB.",
+                $"Network is {FmtLink(d.LinkSpeedBps)}, but SMB copy drops to {FmtThroughput(d.ObservedCopyThroughputBps)}. " +
+                $"The dominant bottleneck is SMB signing.",
             Bottleneck.SmbEncryption =>
-                $"Rede é {FmtLink(d.LinkSpeedBps)}, mas cópia SMB cai para {FmtThroughput(d.ObservedCopyThroughputBps)}. " +
-                $"O gargalo dominante é a criptografia SMB ativa.",
+                $"Network is {FmtLink(d.LinkSpeedBps)}, but SMB copy drops to {FmtThroughput(d.ObservedCopyThroughputBps)}. " +
+                $"The dominant bottleneck is active SMB encryption.",
             Bottleneck.Network =>
                 d.PacketLossRatio >= 0.01
-                    ? $"Perda de pacote ({d.PacketLossRatio:P1}) em {FmtLink(d.LinkSpeedBps)} impactando TCP/SMB."
-                    : $"Capacidade de {FmtLink(d.LinkSpeedBps)} subutilizada durante a cópia observada.",
+                    ? $"Packet loss ({d.PacketLossRatio:P1}) on {FmtLink(d.LinkSpeedBps)} impacting TCP/SMB."
+                    : $"Capacity of {FmtLink(d.LinkSpeedBps)} underutilized during observed copy.",
             Bottleneck.DiskTarget =>
-                $"Disco destino saturado limitando cópia para {FmtThroughput(d.TargetDiskWriteBps)}.",
+                $"Target disk saturated, limiting copy to {FmtThroughput(d.TargetDiskWriteBps)}.",
             Bottleneck.DiskSource =>
-                $"Disco origem saturado limitando leitura em {FmtThroughput(d.SourceDiskReadBps)}.",
+                $"Source disk saturated, limiting read to {FmtThroughput(d.SourceDiskReadBps)}.",
             Bottleneck.SmbMultichannel =>
-                $"Enlace de {FmtLink(d.LinkSpeedBps)} com multichannel desabilitado e canal único — "
-                + $"capacidade ociosa na cópia observada ({FmtThroughput(d.ObservedCopyThroughputBps)}).",
+                $"Link of {FmtLink(d.LinkSpeedBps)} with multichannel disabled and single channel — "
+                + $"idle capacity in observed copy ({FmtThroughput(d.ObservedCopyThroughputBps)}).",
             Bottleneck.Protocol =>
-                $"Conexão negociou dialeto SMB legado ({d.NegotiatedDialect}) — overhead alto e, "
-                + $"no caso do SMB1, risco de segurança.",
+                $"Connection negotiated legacy SMB dialect ({d.NegotiatedDialect}) — high overhead and, "
+                + $"in the case of SMB1, security risk.",
             Bottleneck.Workload =>
-                $"Throughput baixo esperado: {d.FileCount} arquivos pequenos de {BytesToString((long)d.AverageFileBytes)}.",
-            _ => "Gargalo indeterminado."
+                $"Low throughput expected: {d.FileCount} small files averaging {BytesToString((long)d.AverageFileBytes)}.",
+            _ => "Undetermined bottleneck."
         };
 
     private static string FmtThroughput(double bps)
@@ -349,7 +346,7 @@ public sealed class DiagnosisEngine
 }
 
 /// <summary>
-/// Mapper de exit-code para integração com RMM (0 = ok, 2 = gargalo, 1 = erro).
+/// Exit-code mapper for RMM integration (0 = ok, 2 = bottleneck, 1 = error).
 /// </summary>
 public static class ExitCodeMapper
 {
@@ -365,9 +362,9 @@ public static class Remediations
 {
     public static Remediation Signing() => new(
         Id: "SMB_SIGNING_DISABLE_CLIENT",
-        Title: "Desabilitar assinatura SMB no cliente",
-        Description: "Remove o overhead de hash HMAC-SHA-256 em cada pacote SMB. Recomenda-se em redes confiáveis (segmento dedicado, VLAN isolada).",
-        RollbackDescription: "Reativa a assinatura com a política padrão do domínio.",
+        Title: "Disable SMB signing on client",
+        Description: "Removes HMAC-SHA-256 hash overhead on each SMB packet. Recommended on trusted networks (dedicated segment, isolated VLAN).",
+        RollbackDescription: "Re-enables signing according to domain default policy.",
         Commands:
         [
             "Set-SmbClientConfiguration -RequireSecuritySignature $false",
@@ -376,9 +373,9 @@ public static class Remediations
 
     public static Remediation Encryption() => new(
         Id: "SMB_ENCRYPTION_DISABLE_CLIENT",
-        Title: "Desabilitar criptografia obrigatória SMB no cliente",
-        Description: "Criptografia SMB tem custo adicional de CPU por pacote. Em redes confiáveis, a assinatura já protege integridade.",
-        RollbackDescription: "Reativa a exigência de criptografia via política.",
+        Title: "Disable mandatory SMB encryption on client",
+        Description: "SMB encryption adds CPU overhead per packet. On trusted networks, signing already protects integrity.",
+        RollbackDescription: "Re-enables encryption requirement via policy.",
         Commands:
         [
             "Set-SmbClientConfiguration -RequireEncryption $false",
@@ -387,12 +384,12 @@ public static class Remediations
 
     public static Remediation Multichannel() => new(
         Id: "SMB_MULTICHANNEL_ENABLE",
-        Title: "Habilitar SMB Multichannel no cliente",
-        Description: "Multichannel desabilitado em enlace >= 1 Gb/s desperdiça filas RSS e NICs "
-                   + "adicionais. Diferente da assinatura, habilitar multichannel NÃO reduz a "
-                   + "postura de segurança. Ver scripts/remediation/Enable-SmbMultichannel.ps1, "
-                   + "que valida viabilidade (NICs/RSS) antes de aplicar e traz rollback.",
-        RollbackDescription: "Restaura EnableMultiChannel ao valor salvo antes da alteração.",
+        Title: "Enable SMB Multichannel on client",
+        Description: "Disabled multichannel on >= 1 Gb/s links underutilizes RSS queues and "
+                   + "additional NICs. Unlike signing, enabling multichannel does NOT lower "
+                   + "security posture. See scripts/remediation/Enable-SmbMultichannel.ps1, "
+                   + "which verifies feasibility (NICs/RSS) before applying and includes rollback.",
+        RollbackDescription: "Restores EnableMultiChannel to the value saved before modification.",
         Commands:
         [
             "Set-SmbClientConfiguration -EnableMultiChannel $true",
@@ -401,11 +398,11 @@ public static class Remediations
 
     public static Remediation Protocol() => new(
         Id: "SMB_LEGACY_DIALECT",
-        Title: "Dialeto SMB legado negociado",
-        Description: "A conexão negociou SMB 1.x/2.0. Além do overhead, o SMB1 é obsoleto e "
-                   + "inseguro. A correção é habilitar dialeto moderno nas DUAS pontas — não "
-                   + "mexer em assinatura, que não é a causa aqui.",
-        RollbackDescription: "Nenhuma alteração aplicada automaticamente — ação manual nas duas pontas.",
+        Title: "Legacy SMB dialect negotiated",
+        Description: "The connection negotiated SMB 1.x/2.0. In addition to overhead, SMB1 is obsolete and "
+                   + "insecure. Remediation is to enable modern dialect on BOTH ends — do not "
+                   + "change signing, which is not the cause here.",
+        RollbackDescription: "No configuration changes applied automatically — manual action required on both ends.",
         Commands:
         [
             "Get-SmbConnection | Select-Object ServerName,Dialect",
@@ -414,16 +411,16 @@ public static class Remediations
 
     public static Remediation Disk(double busyRatio, double bps) => new(
         Id: "DISK_CONTENTION",
-        Title: "Alívio de contenção em disco",
-        Description: $"Disco com {busyRatio:P0} de uso e throughput medido de {Fmt(bps)}. Verificar: fragmentação, RAID rebuild, other IO consumer.",
-        RollbackDescription: "Nenhuma alteração de configuração aplicada — apenas recomendações de planejamento.",
+        Title: "Relieve disk contention",
+        Description: $"Disk at {busyRatio:P0} utilization and measured throughput of {Fmt(bps)}. Check: fragmentation, RAID rebuild, other IO consumer.",
+        RollbackDescription: "No configuration changes applied — planning recommendations only.",
         Commands: []);
 
     public static Remediation Network(double loss, int mtu) => new(
         Id: "NETWORK_OPTIMIZE",
-        Title: "Otimização de rede",
-        Description: $"Perda de {loss:P1} detectada. Testar MTU {mtu} vs 9000 (jumbo frames) em segmento dedicado.",
-        RollbackDescription: "Sem alteração de configuração de rede.",
+        Title: "Network optimization",
+        Description: $"Packet loss of {loss:P1} detected. Test MTU {mtu} vs 9000 (jumbo frames) on dedicated segment.",
+        RollbackDescription: "No network configuration changed.",
         Commands:
         [
             "netsh interface ipv4 show subinterfaces",
@@ -432,10 +429,10 @@ public static class Remediations
 
     public static Remediation Workload() => new(
         Id: "COPY_METHOD_TUNE",
-        Title: "Ajustar método de cópia para a carga",
-        Description: "Carga de arquivos pequenos deve usar robocopy com paralelismo.",
-        RollbackDescription: "Nenhuma alteração de configuração.",
-        Commands: ["robocopy <origem> <destino> /MT:16 /ZB /J"]);
+        Title: "Tune copy method for workload",
+        Description: "Small file workloads should use robocopy with parallelism.",
+        RollbackDescription: "No configuration changes.",
+        Commands: ["robocopy <source> <destination> /MT:16 /ZB /J"]);
 
     private static string Fmt(double bps)
         => bps >= 1_000_000 ? $"{bps / 1_000_000:F0} MB/s" : $"{bps / 1_000:F0} kB/s";

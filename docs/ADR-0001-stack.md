@@ -1,40 +1,28 @@
-namespace SmbSpeedDoctor.Core;
+# ADR-0001 — Product Stack and Architecture
 
-/// <summary>
-/// ADR-0001 — Stack e estrutura do produto
-/// Data: 2026-08-22
-/// Status: Proposto
-///
-## Contexto
-- Decisão de arquitetura pendente nos documentos: "Stack: .NET vs Rust/Tauri".
-- CANAIS.md define: dois executáveis do mesmo código (GUI + CLI).
-- O produto é um EXE assinado, não um script PowerShell.
-- A lógica de diagnóstico deve ser testável sem Windows (testes unitários
-  no Linux durante o desenvolvimento).
+**Status:** Accepted  
+**Date:** 2026-08-22  
+**Author:** forg3  
 
-## Decisão
-1. **Stack**: C# / .NET 8, biblioteca de classes pura (Core) + dois
-   executáveis (Cli, Gui), ambos targeting win-x64.
-2. **Motivo**: acesso nativo a WMI, Win32 API, SMB cmdlets e WinForms
-   sem dependência de runtime adicional; cross-compile a partir do Linux.
-3. **Consequências**:
-   - Motor de diagnóstico isolado em Core (interfaces + mocks) → 100%
-     testável em CI Linux.
-   - CLI (`smbdoctor-cli.exe`) com `--json` e exit codes para RMM.
-   - GUI (`smbdoctor.exe`) fina — um botão, uma lista — desenhada a partir
-     da mesma saída do CLI.
-   - Wrapper PowerShell MIT separado para scripts de RMM.
-   - Build via `dotnet publish -r win-x64`.
+## Context
 
-## Alternativas rejeitadas
-- **Rust/Tauri**: melhor tamanho de binário e startup, mas perde-se a
-  facilidade de acesso a WMI/Win32 e o ecossistema de segurança/certificação
-  de código da Microsoft. Sem necessidade real de performance crítica que
-  justifique a troca.
-- **Script PowerShell puro**: não passa em marketplaces, não tem UI, não
-  escala como produto independente (regra de CANAIS.md § *Formato do produto*).
+- Architectural decision for SMB Speed Doctor: .NET vs Rust/Tauri.
+- Dual executable requirement: GUI and CLI built from shared logic.
+- Product format is a signed executable, not a raw script.
+- Core diagnostic logic must be testable without Windows (Linux CI/development).
 
-## Notas
-- Cross-compile funciona no Linux (verificar compatibilidade de WMI via
-  Microsoft.NETCore.NETCoreApp/ref/...). No Windows, uso direto de
-  System.Management / Win32 API.
+## Decision
+
+1. **Stack**: C# / .NET 8, pure class library (`Core`) + two executables (`Cli`, `Gui`), targeting `win-x64`.
+2. **Rationale**: Native access to WMI, Win32 API, SMB cmdlets, and WinForms without extra runtime dependencies; cross-compilation from Linux.
+3. **Consequences**:
+   - Diagnostic engine isolated in `Core` (interfaces + domain models) → testable on Linux CI.
+   - CLI (`SmbSpeedDoctor.Cli.exe`) provides `--json` and exit codes for RMM integration.
+   - GUI (`SmbSpeedDoctor.Gui.exe`) provides a single-window interface displaying findings and speed metrics.
+   - MIT-licensed PowerShell wrapper for RMM integration.
+   - Standard build via `dotnet publish -r win-x64`.
+
+## Rejected Alternatives
+
+- **Rust/Tauri**: Smaller binary size, but sacrifices seamless WMI/Win32 integration and Windows management ecosystems. Critical performance requirements do not warrant this trade-off.
+- **Pure PowerShell Script**: Cannot be distributed as a standalone binary in enterprise app catalogs, lacks rich UI, and does not scale as an independent tool.

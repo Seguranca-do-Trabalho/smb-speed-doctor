@@ -1,8 +1,8 @@
 namespace SmbSpeedDoctor.Core;
 
 /// <summary>
-/// Interface abstrata de coletores — permite substituição total por mocks
-/// nos testes unitários e adaptadores reais no Windows.
+/// Abstract collector interface — allows full mocking in unit tests
+/// and real adapters on Windows.
 /// </summary>
 public interface IScanner
 {
@@ -10,7 +10,7 @@ public interface IScanner
 }
 
 /// <summary>
-/// Contratos das camadas de coleta.
+/// Contracts for collection layers.
 /// </summary>
 public interface INetworkCollector
 {
@@ -50,7 +50,7 @@ public interface IWorkloadAnalyzer
 }
 
 /// <summary>
-/// Mocks dos coletores para testes unitários.
+/// Collector mocks for unit tests.
 /// </summary>
 public sealed class MockNetworkCollector : INetworkCollector
 {

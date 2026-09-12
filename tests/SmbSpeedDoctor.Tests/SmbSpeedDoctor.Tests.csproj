@@ -2,10 +2,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    net8.0-windows porque a suíte cobre também a coleta Windows (WindowsScanner,
-    RealCopyProbe). Os testes de domínio puro (DiagnosisEngine) não dependem de
-    plataforma; se um dia houver CI Linux, valem um projeto de teste separado
-    apontando só para SmbSpeedDoctor.Core — ver docs/ADR-0002-separacao-plataforma.md.
+    net8.0-windows because the suite also covers Windows collection (WindowsScanner,
+    RealCopyProbe). Pure domain tests (DiagnosisEngine) do not depend on
+    platform; when Linux CI is added, they can be separated into a dedicated test
+    project pointing only to SmbSpeedDoctor.Core — see docs/ADR-0002-platform-separation.md.
   -->
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -14,6 +14,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RootNamespace>SmbSpeedDoctor.Tests</RootNamespace>
+    <Authors>forg3</Authors>
+    <Company>forg3</Company>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,66 +1,66 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
-// Licença: MIT
+// Created by forg3
+// License: MIT
 //
-// Item 1 — monta o conteúdo do script PowerShell de correção a partir do
-// diagnóstico. O app NUNCA executa o script: apenas o escreve em disco.
-// Toda ação exige revisão humana, elevação de admin e rodada manual.
+// Builds PowerShell remediation script content from diagnosis.
+// The application NEVER executes the script: it only writes it to disk.
+// Every action requires human review, administrator elevation, and manual execution.
 
 using System.Text;
 using SmbSpeedDoctor.Core;
 
 namespace SmbSpeedDoctor.Cli;
 
-/// <summary>Gera script .ps1 com comandos de remediação + bloco de rollback.</summary>
+/// <summary>Generates .ps1 script with remediation commands + rollback block.</summary>
 public static class FixScriptBuilder
 {
     public static string Build(DiagnosisResult result)
     {
         var sb = new StringBuilder();
         sb.AppendLine("# =============================================================");
-        sb.AppendLine("# SMB Speed Doctor — Script de correção gerado automaticamente");
-        sb.AppendLine("# Criado por André Santo (forg3) | junkyardgoodies.app");
-        sb.AppendLine("# Licença: MIT — SEM GARANTIA. Revise cada comando antes de rodar.");
+        sb.AppendLine("# SMB Speed Doctor — Automatically generated remediation script");
+        sb.AppendLine("# Created by forg3");
+        sb.AppendLine("# License: MIT — WITHOUT WARRANTY. Review each command before running.");
         sb.AppendLine("# =============================================================");
-        sb.AppendLine($"# Gerado em: {DateTime.UtcNow:O} (UTC)");
-        sb.AppendLine($"# Diagnóstico: dominant={result.Dominant} severity={result.Severity} confiança={result.ConfidencePct}%");
-        sb.AppendLine($"# Resumo: {result.OneLineSummary ?? "(sem resumo)"}");
+        sb.AppendLine($"# Generated at: {DateTime.UtcNow:O} (UTC)");
+        sb.AppendLine($"# Diagnosis: dominant={result.Dominant} severity={result.Severity} confidence={result.ConfidencePct}%");
+        sb.AppendLine($"# Summary: {result.OneLineSummary ?? "(no summary)"}");
         sb.AppendLine();
 
         if (result.RecommendedRemediation is not { } rem)
         {
-            sb.AppendLine("# Nenhuma remediação recomendada para este diagnóstico.");
-            sb.AppendLine("# O scan não identificou gargalo com correção aplicável.");
+            sb.AppendLine("# No remediation recommended for this diagnosis.");
+            sb.AppendLine("# The scan did not identify a bottleneck with an applicable fix.");
             return sb.ToString();
         }
 
-        sb.AppendLine($"# Remediação: {rem.Title}");
-        sb.AppendLine($"# Descrição : {rem.Description}");
+        sb.AppendLine($"# Remediation: {rem.Title}");
+        sb.AppendLine($"# Description: {rem.Description}");
         sb.AppendLine();
         sb.AppendLine("#Requires -RunAsAdministrator");
         sb.AppendLine("[CmdletBinding()]");
         sb.AppendLine("param([switch]$WhatIf)");
         sb.AppendLine();
         sb.AppendLine("if (-not $WhatIf) {");
-        sb.AppendLine("    Write-Host 'Rode novamente com -WhatIf para simular.' -ForegroundColor Yellow;");
+        sb.AppendLine("    Write-Host 'Run again with -WhatIf to simulate.' -ForegroundColor Yellow;");
         sb.AppendLine("    return;");
         sb.AppendLine("}");
-        sb.AppendLine("Write-Host '=== MODO SIMULAÇÃO (nenhuma alteração real) ===' -ForegroundColor Cyan;");
+        sb.AppendLine("Write-Host '=== SIMULATION MODE (no changes will be made) ===' -ForegroundColor Cyan;");
         sb.AppendLine();
-        sb.AppendLine("# ---- AÇÕES DE CORREÇÃO ----");
+        sb.AppendLine("# ---- REMEDIATION ACTIONS ----");
         foreach (var cmd in rem.Commands)
-            sb.AppendLine($"{Esc(cmd)} # -WhatIf aplica here");
+            sb.AppendLine($"{Esc(cmd)} # -WhatIf applies here");
         sb.AppendLine();
-        sb.AppendLine("# ---- ROLLBACK (reverter ao estado anterior) ----");
+        sb.AppendLine("# ---- ROLLBACK (revert to previous state) ----");
         sb.AppendLine($"# {rem.RollbackDescription}");
-        sb.AppendLine("# Descomente as linhas abaixo apenas se precisar reverter:");
+        sb.AppendLine("# Uncomment the lines below only if you need to rollback:");
         foreach (var line in RollbackHints(rem.Id))
             sb.AppendLine($"# {line}");
         return sb.ToString();
     }
 
     /// <summary>
-    /// Comandos de reversão por família de remediação. Espelham os comandos de
-    /// aplicação; nada aqui é executado pelo app.
+    /// Rollback commands per remediation family. Mirror application
+    /// commands; nothing here is executed by the app.
     /// </summary>
     private static IEnumerable<string> RollbackHints(string remediationId) => remediationId switch
     {
@@ -83,12 +83,12 @@ public static class FixScriptBuilder
         },
         "DISK_TARGET" or "DISK_SOURCE" => new[]
         {
-            "# Reversão: não há alteração de configuração — o gargalo é físico.",
-            "# Avalie mover a carga para outro disco/SSD.",
+            "# Rollback: no configuration change — the bottleneck is physical.",
+            "# Consider moving the workload to another disk/SSD.",
         },
         _ => new[]
         {
-            "# Sem reversão automatizada conhecida para esta remediação.",
+            "# No automated rollback known for this remediation.",
         },
     };
 

@@ -1,26 +1,26 @@
-// Criado por André Santo (forg3) | junkyardgoodies.app
+// Author: forg3 | junkyardgoodies.app
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SmbSpeedDoctor.Core;
 
-/// <summary>Veredito comparativo entre dois scans.</summary>
+/// <summary>Comparative verdict between two scans.</summary>
 public enum ComparisonVerdict
 {
-    Melhorou,
-    Piorou,
-    Estavel,
+    Improved,
+    Regressed,
+    Stable,
 }
 
 /// <summary>
-/// Arquivo de baseline gravado por <c>scan --save</c>: metadados + ScanData completo.
+/// Baseline file saved by <c>scan --save</c>: metadata + full ScanData.
 /// </summary>
 public sealed record BaselineFile(
     string AppVersion,
     DateTime SavedAtUtc,
     ScanData Scan);
 
-/// <summary>Uma linha da tabela antes→depois do <c>scan --compare</c>.</summary>
+/// <summary>A row in the before->after table of <c>scan --compare</c>.</summary>
 public sealed record MetricComparison(
     string Metric,
     object? Before,
@@ -30,22 +30,22 @@ public sealed record MetricComparison(
 {
     public string VerdictLabel => Verdict switch
     {
-        ComparisonVerdict.Melhorou => "MELHOROU",
-        ComparisonVerdict.Piorou => "PIOROU",
-        _ => "ESTÁVEL",
+        ComparisonVerdict.Improved => "IMPROVED",
+        ComparisonVerdict.Regressed => "REGRESSED",
+        _ => "STABLE",
     };
 }
 
 /// <summary>
-/// Persistência e comparação de baselines. Grava o ScanData completo com
-/// timestamp ISO-8601 UTC e versão do app; compara dois scans com thresholds
-/// fixos: throughput ±10%, latência ±15%, perda de pacote ±0,5 ponto percentual.
+/// Persistence and comparison of baselines. Saves complete ScanData with
+/// ISO-8601 UTC timestamp and app version; compares two scans with fixed
+/// thresholds: throughput ±10%, latency ±15%, packet loss ±0.5 percentage points.
 /// </summary>
 public static class BaselineStore
 {
     public const double ThroughputRelativeThreshold = 0.10;   // ±10%
     public const double LatencyRelativeThreshold = 0.15;      // ±15%
-    public const double PacketLossAbsoluteThreshold = 0.005;  // ±0,5 pp (ratio absoluto)
+    public const double PacketLossAbsoluteThreshold = 0.005;  // ±0.5 pp (absolute ratio)
 
     private static readonly JsonSerializerOptions FileOptions = new()
     {
@@ -54,38 +54,38 @@ public static class BaselineStore
         Converters = { new JsonStringEnumConverter() },
     };
 
-    /// <summary>Serializa o scan para o formato de baseline (com versão e timestamp UTC).</summary>
+    /// <summary>Serializes the scan to baseline format (with version and UTC timestamp).</summary>
     public static string Serialize(ScanData scan, DateTime? savedAtUtc = null, string? appVersion = null)
         => JsonSerializer.Serialize(new BaselineFile(
             AppVersion: appVersion ?? AppVersion(),
             SavedAtUtc: (savedAtUtc ?? DateTime.UtcNow).ToUniversalTime(),
             Scan: scan), FileOptions);
 
-    /// <summary>Grava o baseline em disco.</summary>
+    /// <summary>Saves baseline to disk.</summary>
     public static void Save(ScanData scan, string path, DateTime? savedAtUtc = null, string? appVersion = null)
         => File.WriteAllText(path, Serialize(scan, savedAtUtc, appVersion));
 
-    /// <summary>Carrega um baseline gravado por <see cref="Save"/>.</summary>
+    /// <summary>Loads a baseline saved by <see cref="Save"/>.</summary>
     public static BaselineFile Load(string path)
     {
         var raw = JsonSerializer.Deserialize<BaselineFile>(File.ReadAllText(path), FileOptions)
-            ?? throw new InvalidDataException($"Baseline inválido ou vazio: {path}");
+            ?? throw new InvalidDataException($"Invalid or empty baseline: {path}");
         return raw;
     }
 
-    /// <summary>Versão curta do app (AssemblyVersion), ex.: "1.0.0.0".</summary>
+    /// <summary>Short version of the app (AssemblyVersion), e.g. "1.0.0.0".</summary>
     public static string AppVersion()
         => typeof(BaselineStore).Assembly.GetName().Version?.ToString() ?? "unknown";
 
     // ------------------------------------------------------------------
-    // Comparação
+    // Comparison
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Compara baseline → scan atual. Métricas-chave: latência, throughput bruto,
-    /// throughput observado, perda de pacote, velocidade de link, gargalo dominante e severidade.
-    /// O diagnóstico é executado internamente via <see cref="DiagnosisEngine"/> para obter
-    /// dominant/severity consistentes com o motor de correlação.
+    /// Compares baseline -> current scan. Key metrics: latency, raw throughput,
+    /// observed throughput, packet loss, link speed, dominant bottleneck, and severity.
+    /// Diagnosis is executed internally via <see cref="DiagnosisEngine"/> to obtain
+    /// dominant/severity consistent with the correlation engine.
     /// </summary>
     public static IReadOnlyList<MetricComparison> Compare(ScanData before, ScanData after)
     {
@@ -105,7 +105,7 @@ public static class BaselineStore
         };
     }
 
-    /// <summary>Métrica relativa: antes/depois com limiar e direção de melhoria.</summary>
+    /// <summary>Relative metric: before/after with threshold and improvement direction.</summary>
     public static MetricComparison Relative(string metric, double before, double after, double threshold, bool betterLower)
     {
         double delta = after - before;
@@ -113,45 +113,45 @@ public static class BaselineStore
         return new MetricComparison(metric, Round(before), Round(after), Math.Round(delta, 6), verdict);
     }
 
-    /// <summary>Métrica relativa onde valores MAIORES são melhores (throughput, link).</summary>
+    /// <summary>Relative metric where HIGHER values are better (throughput, link speed).</summary>
     public static MetricComparison HigherIsBetter(string metric, double before, double after)
         => Relative(metric, before, after, ThroughputRelativeThreshold, betterLower: false);
 
-    /// <summary>Perda de pacote usa limiar ABSOLUTO (±0,5 pp), não relativo.</summary>
+    /// <summary>Packet loss uses ABSOLUTE threshold (±0.5 pp), not relative.</summary>
     public static MetricComparison PacketLoss(double before, double after)
     {
         double delta = after - before;
         var verdict = Math.Abs(delta) <= PacketLossAbsoluteThreshold
-            ? ComparisonVerdict.Estavel
-            : delta < 0 ? ComparisonVerdict.Melhorou : ComparisonVerdict.Piorou;
+            ? ComparisonVerdict.Stable
+            : delta < 0 ? ComparisonVerdict.Improved : ComparisonVerdict.Regressed;
         return new MetricComparison("PacketLossRatio", Round(before), Round(after), Math.Round(delta, 6), verdict);
     }
 
-    /// <summary>Métrica categórica: igual = ESTÁVEL; senão decide pela hierarquia de impacto.</summary>
+    /// <summary>Categorical metric: equal = STABLE; otherwise decides by impact hierarchy.</summary>
     public static MetricComparison Categorical(string metric, string before, string after)
         => new(metric, before, after, null,
-            before == after ? ComparisonVerdict.Estavel : RankDelta(before, after));
+            before == after ? ComparisonVerdict.Stable : RankDelta(before, after));
 
     /// <summary>
-    /// Veredito para métricas com limiar RELATIVO sobre o valor anterior.
-    /// Dentro do limiar = ESTÁVEL; fora, o sinal do delta decide.
-    /// Valores nulos/zero anteriores: qualquer ganho conta como melhora.
+    /// Verdict for metrics with RELATIVE threshold over previous value.
+    /// Within threshold = STABLE; outside, delta sign decides.
+    /// Previous null/zero values: any gain counts as improvement.
     /// </summary>
     public static ComparisonVerdict JudgeRelative(double before, double delta, bool betterLower, double threshold)
     {
         if (Math.Abs(delta) <= 0)
-            return ComparisonVerdict.Estavel;
+            return ComparisonVerdict.Stable;
 
         double relative = before > 0 ? Math.Abs(delta) / before : double.PositiveInfinity;
         if (relative <= threshold)
-            return ComparisonVerdict.Estavel;
+            return ComparisonVerdict.Stable;
 
         bool improved = betterLower ? delta < 0 : delta > 0;
-        return improved ? ComparisonVerdict.Melhorou : ComparisonVerdict.Piorou;
+        return improved ? ComparisonVerdict.Improved : ComparisonVerdict.Regressed;
     }
 
-    // Hierarquia de impacto dos gargalos (menor = melhor): None é saudável;
-    // críticos de protocolo/rede/disco pesam mais que warnings locais.
+    // Impact hierarchy of bottlenecks (lower = better): None is healthy;
+    // critical protocol/network/disk bottlenecks outrank local warnings.
     private static readonly Dictionary<string, int> BottleneckRank = new()
     {
         ["None"] = 0,
@@ -170,15 +170,15 @@ public static class BaselineStore
     {
         int b = BottleneckRank.GetValueOrDefault(before, 4);
         int a = BottleneckRank.GetValueOrDefault(after, 4);
-        return a < b ? ComparisonVerdict.Melhorou : a > b ? ComparisonVerdict.Piorou : ComparisonVerdict.Estavel;
+        return a < b ? ComparisonVerdict.Improved : a > b ? ComparisonVerdict.Regressed : ComparisonVerdict.Stable;
     }
 
     private static double Round(double v) => Math.Round(v, 6);
 
     // ------------------------------------------------------------------
-    // DTO explícito: isola o JSON de baseline das propriedades calculadas
-    // do record ScanData (AverageFileTransferSeconds) e garante round-trip
-    // estável mesmo se o record ganhar membros computados no futuro.
+    // Explicit DTO: isolates baseline JSON from computed properties
+    // of ScanData record (AverageFileTransferSeconds) and ensures stable
+    // round-trip even if the record gains computed members in the future.
     // ------------------------------------------------------------------
 
     private sealed record ScanDto(
